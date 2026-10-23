@@ -625,18 +625,14 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             textSize = 21f
             gravity = Gravity.CENTER
             setTextColor(Color.WHITE)
-            contentDescription = "Read current page aloud"
+            contentDescription = "Replay current page aloud"
             setPadding(dp(16), dp(8), dp(16), dp(8))
             isClickable = true
             isFocusable = true
             setOnClickListener {
-                if (isNarrating) {
-                    stopReaderNarration()
-                    showReaderOverlays()
-                } else {
-                    showReaderOverlays()
-                    readCurrentPage()
-                }
+                if (isNarrating) stopReaderNarration()
+                showReaderOverlays()
+                readCurrentPage()
             }
         }
         readerStopButton = TextView(this).apply {
@@ -788,6 +784,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                         }
                         pageBitmaps[index] = result
                         pageImages[index].setImageBitmap(result)
+                        trimReaderBitmaps()
                     } else {
                         result?.let { if (!it.isRecycled) it.recycle() }
                     }
@@ -818,6 +815,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     }
 
     private fun releaseReaderBitmaps() {
+        pageImages.forEach { image -> image.setImageDrawable(null) }
         pageBitmaps.values.forEach { bitmap ->
             if (!bitmap.isRecycled) bitmap.recycle()
         }
@@ -833,7 +831,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         mainHandler.removeCallbacks(hideReaderOverlaysRunnable)
         readerMenuButton.visibility = View.VISIBLE
         readerPlaybackPanel.visibility = if (isNarrating) View.VISIBLE else View.GONE
-        readerPlayButton.text = if (isNarrating) "■" else "▶"
+        readerPlayButton.text = if (isNarrating) "↻" else "▶"
         mainHandler.postDelayed(hideReaderOverlaysRunnable, 2_000L)
     }
 
