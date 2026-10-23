@@ -149,6 +149,28 @@ class SettingsActivity : ComponentActivity() {
             }.setNegativeButton(label("Cancel", "বাতিল"), null).show()
         }
 
+        val narrationRates = floatArrayOf(0.75f, 0.85f, 0.95f, 1.05f)
+        val narrationRateLabels = arrayOf(
+            label("Slow storyteller (0.75x)", "ধীর গল্পপাঠ (০.৭৫×)"),
+            label("Storyteller (0.85x)", "গল্পপাঠ (০.৮৫×)"),
+            label("Natural (0.95x)", "স্বাভাবিক (০.৯৫×)"),
+            label("Fast (1.05x)", "দ্রুত (১.০৫×)")
+        )
+        val savedNarrationRate = prefs.getFloat("narration_rate", 0.85f)
+        val selectedNarrationRate = narrationRates.indices.minByOrNull {
+            kotlin.math.abs(narrationRates[it] - savedNarrationRate)
+        } ?: 1
+        addRow(label("Narration pace", "পাঠের গতি"), narrationRateLabels[selectedNarrationRate]) {
+            AlertDialog.Builder(this).setTitle(label("Narration pace", "পাঠের গতি"))
+                .setSingleChoiceItems(narrationRateLabels, selectedNarrationRate) { dialog, which ->
+                    prefs.edit().putFloat("narration_rate", narrationRates[which]).apply()
+                    dialog.dismiss()
+                    render()
+                }
+                .setNegativeButton(label("Cancel", "বাতিল"), null)
+                .show()
+        }
+
         val booksFolder = prefs.getString("book_folder_uri", null)
         addRow(label("Books folder", "বইয়ের ফোল্ডার"), if (booksFolder == null) label("Not selected", "নির্বাচন করা হয়নি") else label("Selected · scan on app launch", "নির্বাচিত · অ্যাপ খোলার সময় স্ক্যান")) {
             chooseBooks.launch(null)
