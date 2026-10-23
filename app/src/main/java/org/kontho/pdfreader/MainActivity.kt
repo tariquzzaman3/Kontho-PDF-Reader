@@ -327,9 +327,10 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
                                 val width = 360
                                 val height = (width.toFloat() * page.height / page.width)
                                     .toInt().coerceAtLeast(1).coerceAtMost(520)
-                                bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-                                bitmap?.eraseColor(Color.WHITE)
-                                page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                                val thumbnail = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                                bitmap = thumbnail
+                                thumbnail.eraseColor(Color.WHITE)
+                                page.render(thumbnail, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
                             }
                         }
                     }
@@ -521,9 +522,10 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
             try {
                 val width = 900
                 val height = (width.toFloat() * page.height / page.width).toInt().coerceAtLeast(1)
-                bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-                bitmap?.eraseColor(Color.WHITE)
-                page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                val pageBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                bitmap = pageBitmap
+                pageBitmap.eraseColor(Color.WHITE)
+                page.render(pageBitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
             } finally {
                 page.close()
             }
