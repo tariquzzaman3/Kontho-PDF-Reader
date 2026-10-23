@@ -278,10 +278,13 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         val prefs = preferences
         val field = prefs.getString("sort_field", "name") ?: "name"
         val descending = prefs.getBoolean("sort_descending", false)
-        popup.menu.add(0, 0, 0, "Name · A–Z" + if (field == "name" && !descending) " ✓" else "")
-        popup.menu.add(0, 1, 1, "Name · Z–A" + if (field == "name" && descending) " ✓" else "")
-        popup.menu.add(0, 2, 2, "Date · newest first" + if (field == "date" && descending) " ✓" else "")
-        popup.menu.add(0, 3, 3, "Date · oldest first" + if (field == "date" && !descending) " ✓" else "")
+        val bn = prefs.getString("app_language", "en") == "bn"
+        val names = if (bn) arrayOf("নাম · আ–জ", "নাম · জ–আ", "তারিখ · নতুন আগে", "তারিখ · পুরোনো আগে")
+            else arrayOf("Name · A–Z", "Name · Z–A", "Date · newest first", "Date · oldest first")
+        popup.menu.add(0, 0, 0, names[0] + if (field == "name" && !descending) " ✓" else "")
+        popup.menu.add(0, 1, 1, names[1] + if (field == "name" && descending) " ✓" else "")
+        popup.menu.add(0, 2, 2, names[2] + if (field == "date" && descending) " ✓" else "")
+        popup.menu.add(0, 3, 3, names[3] + if (field == "date" && !descending) " ✓" else "")
         popup.setOnMenuItemClickListener { item ->
             when (item.itemId) {
                 0 -> prefs.edit().putString("sort_field", "name").putBoolean("sort_descending", false).apply()
@@ -577,7 +580,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(3), 0, dp(3), 0)
         }
-        readerScroll.addView(pagesContainer, ScrollView.LayoutParams(
+        readerScroll.addView(pagesContainer, ViewGroup.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
         ))
         root.addView(readerScroll, FrameLayout.LayoutParams(
@@ -819,7 +822,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         mainHandler.removeCallbacks(hideReaderOverlaysRunnable)
         readerMenuButton.visibility = View.VISIBLE
         readerPlaybackPanel.visibility = if (isNarrating) View.VISIBLE else View.GONE
-        readerPlayButton.text = if (isNarrating) "Ⅱ" else "▶"
+        readerPlayButton.text = if (isNarrating) "■" else "▶"
         mainHandler.postDelayed(hideReaderOverlaysRunnable, 2_000L)
     }
 
