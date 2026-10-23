@@ -247,9 +247,10 @@ class MainActivity : ComponentActivity() {
                     )
                     val width = (page.width * scale).roundToInt().coerceAtLeast(1)
                     val height = (page.height * scale).roundToInt().coerceAtLeast(1)
-                    bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-                    bitmap?.eraseColor(Color.WHITE)
-                    page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                    val pageBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                    bitmap = pageBitmap
+                    pageBitmap.eraseColor(Color.WHITE)
+                    page.render(pageBitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
                 } finally {
                     page.close()
                 }
