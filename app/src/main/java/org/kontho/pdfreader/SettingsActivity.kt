@@ -84,6 +84,7 @@ class SettingsActivity : ComponentActivity() {
             "light" -> false
             else -> (resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
         }
+        setTheme(if (dark) android.R.style.Theme_Material_NoActionBar else android.R.style.Theme_Material_Light_NoActionBar)
         val screenBackground = if (dark) Color.rgb(22, 29, 27) else Color.rgb(248, 250, 249)
         val foreground = if (dark) Color.WHITE else Color.rgb(27, 48, 42)
         val muted = if (dark) Color.rgb(187, 201, 195) else Color.rgb(99, 117, 109)
