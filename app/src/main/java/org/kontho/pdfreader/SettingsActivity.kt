@@ -1,6 +1,6 @@
 package org.kontho.pdfreader
 
-import android.app.Activity
+import androidx.activity.ComponentActivity
 import android.app.AlertDialog
 import android.content.Intent
 import android.graphics.Color
@@ -13,7 +13,7 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 
-class SettingsActivity : Activity() {
+class SettingsActivity : ComponentActivity() {
     private val prefs by lazy { getSharedPreferences("kontho_library", MODE_PRIVATE) }
     private var firstRun = false
 
