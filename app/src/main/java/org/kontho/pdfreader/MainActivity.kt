@@ -105,6 +105,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         showingLibrary = true
         currentBook = null
         tts?.stop()
+        worker.execute { closeCurrentRenderer() }
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -199,7 +200,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
                 }
             }
 
-            val sorted = found.values.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.name })
+            val sorted = found.values.sortedBy { it.name.lowercase(Locale.ROOT) }
             runOnUiThread {
                 if (!showingLibrary) return@runOnUiThread
                 books = sorted
