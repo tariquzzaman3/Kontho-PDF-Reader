@@ -43,6 +43,7 @@ import com.tom_roush.pdfbox.text.PDFTextStripper
 import java.io.IOException
 import java.util.Locale
 import java.util.concurrent.Executors
+import kotlin.math.roundToInt
 
 private data class Book(val uri: Uri, val name: String)
 
