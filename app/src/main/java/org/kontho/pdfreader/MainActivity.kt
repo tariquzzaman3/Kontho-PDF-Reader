@@ -459,9 +459,14 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
     }
 
     private fun buildReaderScreen() {
+        val darkReader = when (getSharedPreferences("kontho_library", MODE_PRIVATE).getString("app_theme", "system")) {
+            "dark" -> true
+            "light" -> false
+            else -> (resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
+        }
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.rgb(248, 250, 249))
+            setBackgroundColor(if (darkReader) Color.rgb(25, 31, 29) else Color.rgb(248, 250, 249))
             setPadding(dp(12), dp(8), dp(12), dp(8))
         }
 
@@ -476,7 +481,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         val readerTitle = TextView(this).apply {
             text = currentBook?.name ?: "PDF Reader"
             textSize = 16f
-            setTextColor(Color.rgb(18, 76, 66))
+            setTextColor(if (darkReader) Color.rgb(175, 225, 210) else Color.rgb(18, 76, 66))
             typeface = Typeface.DEFAULT_BOLD
             maxLines = 1
             ellipsize = android.text.TextUtils.TruncateAt.END
@@ -487,7 +492,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
 
         status = TextView(this).apply {
             textSize = 13f
-            setTextColor(Color.DKGRAY)
+            setTextColor(if (darkReader) Color.LTGRAY else Color.DKGRAY)
             setPadding(0, dp(5), 0, dp(4))
         }
         root.addView(status, matchWrap())
@@ -512,7 +517,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         pageLabel = TextView(this).apply {
             gravity = Gravity.CENTER
             textSize = 13f
-            setTextColor(Color.DKGRAY)
+            setTextColor(if (darkReader) Color.LTGRAY else Color.DKGRAY)
             setPadding(0, dp(4), 0, dp(4))
         }
         pageLabel.setOnClickListener { showGoToPageDialog() }
@@ -533,7 +538,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         pageImage = ImageView(this).apply {
             adjustViewBounds = true
             scaleType = ImageView.ScaleType.FIT_CENTER
-            setBackgroundColor(Color.WHITE)
+            setBackgroundColor(if (darkReader) Color.rgb(39, 47, 44) else Color.WHITE)
             contentDescription = "PDF page preview"
         }
         root.addView(pageImage, LinearLayout.LayoutParams(
@@ -557,7 +562,8 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         extractedText = TextView(this).apply {
             text = "Page text will appear here."
             textSize = 16f
-            setTextColor(Color.rgb(35, 42, 40))
+            setTextColor(if (darkReader) Color.WHITE else Color.rgb(35, 42, 40))
+            setBackgroundColor(if (darkReader) Color.rgb(25, 31, 29) else Color.TRANSPARENT)
             setPadding(dp(8), dp(8), dp(8), dp(8))
             textIsSelectable = true
         }
@@ -770,7 +776,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
                     .setNegativeButton(if (bn) "বাতিল" else "Cancel", null)
                     .setPositiveButton(if (bn) "মুছুন" else "Delete") { _, _ ->
                         val success = try { DocumentFile.fromSingleUri(this, book.uri)?.delete() == true } catch (_: Exception) { false }
-                        if (success) refreshLibrary() else toast(if (bn) "ফাইলটি মুছতে অনুমতি নেই।" else "Android does not allow deleting this file. Check folder permissions.")
+                        if (success) { forgetRecentBook(book.uri); refreshLibrary() } else toast(if (bn) "ফাইলটি মুছতে অনুমতি নেই।" else "Android does not allow deleting this file. Check folder permissions.")
                     }.show()
             }
         }.show()
@@ -787,8 +793,15 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
                 if (name.isBlank()) return@setPositiveButton
                 if (!name.endsWith(".pdf", true)) name += ".pdf"
                 val success = try { DocumentFile.fromSingleUri(this, book.uri)?.renameTo(name) == true } catch (_: Exception) { false }
-                if (success) refreshLibrary() else toast(if (bn) "ফাইলের নাম বদলাতে অনুমতি নেই।" else "Android does not allow renaming this file. Check folder permissions.")
+                if (success) { forgetRecentBook(book.uri); refreshLibrary() } else toast(if (bn) "ফাইলের নাম বদলাতে অনুমতি নেই।" else "Android does not allow renaming this file. Check folder permissions.")
             }.show()
+    }
+
+    private fun forgetRecentBook(uri: Uri) {
+        val recent = getSharedPreferences("kontho_library", MODE_PRIVATE)
+            .getStringSet("recent_books", emptySet())?.toMutableSet() ?: mutableSetOf()
+        recent.remove(uri.toString())
+        getSharedPreferences("kontho_library", MODE_PRIVATE).edit().putStringSet("recent_books", recent).apply()
     }
 
     private fun rememberRecentBook(book: Book) {
