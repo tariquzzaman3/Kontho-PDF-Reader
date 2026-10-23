@@ -327,14 +327,6 @@ class SettingsActivity : ComponentActivity() {
                 content.addView(caption, ViewGroup.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
                 ))
-                val chooseButton = Button(this).apply {
-                    text = if (selectedFolder.isNullOrBlank()) label("Choose folder", "ফোল্ডার বাছুন") else label("Change folder", "ফোল্ডার বদলান")
-                    isAllCaps = false
-                    setOnClickListener { chooseSetupBooks.launch(null) }
-                }
-                content.addView(chooseButton, LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, dp(48)
-                ))
             }
         }
 
