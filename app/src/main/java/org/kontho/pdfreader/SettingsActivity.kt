@@ -4,6 +4,8 @@ import androidx.activity.ComponentActivity
 import android.app.AlertDialog
 import android.content.Intent
 import android.graphics.Color
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.view.Gravity
 import android.view.ViewGroup
@@ -16,6 +18,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 class SettingsActivity : ComponentActivity() {
     private val prefs by lazy { getSharedPreferences("kontho_library", MODE_PRIVATE) }
     private var firstRun = false
+    private var setupStep = 0
 
     private val chooseBooks = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) {
@@ -39,6 +42,16 @@ class SettingsActivity : ComponentActivity() {
         }
     }
 
+    private val chooseSetupBooks = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri != null) {
+            try {
+                contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            } catch (_: Exception) { }
+            prefs.edit().putString("book_folder_uri", uri.toString()).apply()
+        }
+        renderSetupStep()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         firstRun = intent.getBooleanExtra("first_run", false)
         val theme = prefs.getString("app_theme", "system")
@@ -49,15 +62,348 @@ class SettingsActivity : ComponentActivity() {
         }
         setTheme(if (dark) android.R.style.Theme_Material_NoActionBar else android.R.style.Theme_Material_Light_NoActionBar)
         super.onCreate(savedInstanceState)
-        render()
-        if (firstRun) {
-            AlertDialog.Builder(this)
-                .setTitle(label("Welcome to Kontho", "কণ্ঠে স্বাগতম"))
-                .setMessage(label("Set up your preferred language, appearance, library layout, sorting and storage. You can change everything later in Settings.", "আপনার পছন্দের ভাষা, থিম, বই দেখানোর ধরন, সাজানো ও স্টোরেজ সেট করুন। পরে সেটিংস থেকে পরিবর্তন করতে পারবেন।"))
-                .setPositiveButton(label("Start setup", "সেটআপ শুরু")) { _, _ -> }
-                .show()
+        if (firstRun && !prefs.getBoolean("setup_done", false)) {
+            renderSetupStep()
+        } else {
+            render()
         }
     }
+
+    /**
+     * Four short onboarding screens: language, appearance, library layout,
+     * and PDF folder. The regular Settings screen remains available afterward.
+     */
+    private fun renderSetupStep() {
+        val language = prefs.getString("app_language", "en") == "bn"
+        val dark = when (prefs.getString("app_theme", "system")) {
+            "dark" -> true
+            "light" -> false
+            else -> (resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
+        }
+        val background = if (dark) Color.rgb(22, 29, 27) else Color.rgb(248, 250, 249)
+        val foreground = if (dark) Color.WHITE else Color.rgb(27, 48, 42)
+        val muted = if (dark) Color.rgb(187, 201, 195) else Color.rgb(99, 117, 109)
+        val accent = Color.rgb(18, 104, 84)
+
+        window.statusBarColor = if (dark) Color.rgb(20, 28, 26) else Color.rgb(18, 76, 66)
+        window.navigationBarColor = window.statusBarColor
+
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(12), dp(20), dp(14))
+            setBackgroundColor(background)
+        }
+        val scroll = android.widget.ScrollView(this).apply {
+            isFillViewport = true
+            clipToPadding = false
+        }
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(0, dp(8), 0, dp(8))
+        }
+        scroll.addView(content, ViewGroup.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ))
+
+        val logo = TextView(this).apply {
+            text = "কণ্ঠ"
+            textSize = 29f
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            setTextColor(Color.WHITE)
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(accent)
+            }
+            contentDescription = "Kontho logo"
+        }
+        content.addView(logo, LinearLayout.LayoutParams(dp(112), dp(112)).apply {
+            bottomMargin = dp(10)
+        })
+
+        val brand = TextView(this).apply {
+            text = if (language) "বাংলা বই, আপনার কণ্ঠে" else "Bangla books, brought to life"
+            textSize = 13f
+            gravity = Gravity.CENTER
+            setTextColor(muted)
+        }
+        content.addView(brand, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply { bottomMargin = dp(20) })
+
+        val stepTitle = TextView(this).apply {
+            text = when (setupStep) {
+                0 -> if (language) "ভাষা নির্বাচন করুন" else "Choose your language"
+                1 -> if (language) "আপনার থিম বেছে নিন" else "Choose your theme"
+                2 -> if (language) "বই কীভাবে দেখাব?" else "Choose your library layout"
+                else -> if (language) "PDF বইয়ের ফোল্ডার" else "Choose your PDF folder"
+            }
+            textSize = 21f
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            setTextColor(foreground)
+            setPadding(0, 0, 0, dp(6))
+        }
+        content.addView(stepTitle, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ))
+
+        val helper = TextView(this).apply {
+            text = when (setupStep) {
+                0 -> if (language) "শুরু করার জন্য ভাষা বেছে নিন" else "Pick the language you want to use"
+                1 -> if (language) "পরে সেটিংস থেকে বদলাতে পারবেন" else "You can change this later in Settings"
+                2 -> if (language) "বইয়ের তালিকা বা কভার গ্রিড" else "A simple list or a book-cover grid"
+                else -> if (language) "শুধু নির্বাচিত ফোল্ডারেই বই খোঁজা হবে" else "Kontho will scan this folder and its subfolders"
+            }
+            textSize = 13f
+            gravity = Gravity.CENTER
+            setTextColor(muted)
+            setPadding(dp(4), 0, dp(4), dp(18))
+        }
+        content.addView(helper, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ))
+
+        fun cardBackground(selected: Boolean) = GradientDrawable().apply {
+            cornerRadius = dp(16).toFloat()
+            setColor(if (selected) {
+                if (dark) Color.rgb(32, 67, 57) else Color.rgb(224, 242, 235)
+            } else {
+                if (dark) Color.rgb(37, 45, 42) else Color.WHITE
+            })
+            setStroke(dp(if (selected) 2 else 1), if (selected) accent else if (dark) Color.rgb(70, 83, 77) else Color.rgb(222, 230, 226))
+        }
+
+        fun choiceCard(symbol: String, title: String, selected: Boolean, action: () -> Unit): LinearLayout {
+            val card = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER
+                setPadding(dp(8), dp(14), dp(8), dp(14))
+                background = cardBackground(selected)
+                isClickable = true
+                isFocusable = true
+                setOnClickListener { action() }
+            }
+            val icon = TextView(this).apply {
+                text = symbol
+                textSize = 36f
+                gravity = Gravity.CENTER
+                setTextColor(foreground)
+            }
+            card.addView(icon, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(58)
+            ))
+            val labelView = TextView(this).apply {
+                text = title
+                textSize = 16f
+                typeface = Typeface.DEFAULT_BOLD
+                gravity = Gravity.CENTER
+                setTextColor(foreground)
+                setPadding(0, dp(6), 0, 0)
+            }
+            card.addView(labelView, ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            ))
+            return card
+        }
+
+        fun addChoiceRow(cards: List<View>) {
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+            }
+            cards.forEachIndexed { index, view ->
+                row.addView(view, LinearLayout.LayoutParams(0, dp(124), 1f).apply {
+                    if (index > 0) marginStart = dp(8)
+                    if (index < cards.lastIndex) marginEnd = dp(8)
+                })
+            }
+            content.addView(row, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(12) })
+        }
+
+        when (setupStep) {
+            0 -> {
+                val languageRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+                val banglaCard = choiceCard("🇧🇩", "বাংলা", language) {
+                    prefs.edit().putString("app_language", "bn").apply()
+                    setupStep = 1
+                    renderSetupStep()
+                }
+                val englishCard = choiceCard("🇬🇧", "English", !language) {
+                    prefs.edit().putString("app_language", "en").apply()
+                    setupStep = 1
+                    renderSetupStep()
+                }
+                languageRow.addView(banglaCard, LinearLayout.LayoutParams(0, dp(150), 1f).apply { marginEnd = dp(6) })
+                languageRow.addView(englishCard, LinearLayout.LayoutParams(0, dp(150), 1f).apply { marginStart = dp(6) })
+                content.addView(languageRow, LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+                ))
+                val caption = TextView(this).apply {
+                    text = if (language) "ভাষা" else "Language"
+                    textSize = 14f
+                    gravity = Gravity.CENTER
+                    setTextColor(muted)
+                    setPadding(0, dp(8), 0, dp(18))
+                }
+                content.addView(caption, ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+                ))
+            }
+            1 -> {
+                val theme = prefs.getString("app_theme", "system") ?: "system"
+                addChoiceRow(listOf(
+                    choiceCard("◐", label("System", "সিস্টেম"), theme == "system") {
+                        prefs.edit().putString("app_theme", "system").apply()
+                        setupStep = 2
+                        renderSetupStep()
+                    },
+                    choiceCard("☀", label("Light", "লাইট"), theme == "light") {
+                        prefs.edit().putString("app_theme", "light").apply()
+                        setupStep = 2
+                        renderSetupStep()
+                    },
+                    choiceCard("☾", label("Dark", "ডার্ক"), theme == "dark") {
+                        prefs.edit().putString("app_theme", "dark").apply()
+                        setupStep = 2
+                        renderSetupStep()
+                    }
+                ))
+                val caption = TextView(this).apply {
+                    text = label("Theme", "থিম")
+                    textSize = 14f
+                    gravity = Gravity.CENTER
+                    setTextColor(muted)
+                }
+                content.addView(caption, ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+                ))
+            }
+            2 -> {
+                val viewMode = prefs.getString("library_view", "grid") ?: "grid"
+                addChoiceRow(listOf(
+                    choiceCard("☷", label("List", "তালিকা"), viewMode == "list") {
+                        prefs.edit().putString("library_view", "list").apply()
+                        setupStep = 3
+                        renderSetupStep()
+                    },
+                    choiceCard("▦", label("Grid", "গ্রিড"), viewMode == "grid") {
+                        prefs.edit().putString("library_view", "grid").apply()
+                        setupStep = 3
+                        renderSetupStep()
+                    }
+                ))
+                val caption = TextView(this).apply {
+                    text = label("Library layout", "বই দেখানোর ধরন")
+                    textSize = 14f
+                    gravity = Gravity.CENTER
+                    setTextColor(muted)
+                }
+                content.addView(caption, ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+                ))
+            }
+            else -> {
+                val selectedFolder = prefs.getString("book_folder_uri", null)
+                val folderCard = choiceCard(
+                    if (selectedFolder.isNullOrBlank()) "📁" else "✓",
+                    if (selectedFolder.isNullOrBlank()) label("Choose PDF folder", "PDF ফোল্ডার বাছুন") else label("Folder selected", "ফোল্ডার নির্বাচিত"),
+                    !selectedFolder.isNullOrBlank()
+                ) {
+                    chooseSetupBooks.launch(null)
+                }
+                content.addView(folderCard, LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, dp(130)
+                ).apply { bottomMargin = dp(10) })
+                val caption = TextView(this).apply {
+                    text = label("PDF folder", "PDF ফোল্ডার")
+                    textSize = 14f
+                    gravity = Gravity.CENTER
+                    setTextColor(muted)
+                    setPadding(0, dp(6), 0, dp(12))
+                }
+                content.addView(caption, ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+                ))
+                val chooseButton = Button(this).apply {
+                    text = if (selectedFolder.isNullOrBlank()) label("Choose folder", "ফোল্ডার বাছুন") else label("Change folder", "ফোল্ডার বদলান")
+                    isAllCaps = false
+                    setOnClickListener { chooseSetupBooks.launch(null) }
+                }
+                content.addView(chooseButton, LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, dp(48)
+                ))
+            }
+        }
+
+        val progressText = TextView(this).apply {
+            text = label("Step ${setupStep + 1} of 4", "ধাপ ${setupStep + 1}/৪")
+            textSize = 12f
+            gravity = Gravity.CENTER
+            setTextColor(muted)
+            setPadding(0, dp(8), 0, dp(8))
+        }
+        root.addView(scroll, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f
+        ))
+        root.addView(progressText, ViewGroup.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ))
+
+        val footer = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        if (setupStep > 0) {
+            val back = Button(this).apply {
+                text = label("Back", "পেছনে")
+                isAllCaps = false
+                setOnClickListener {
+                    setupStep = (setupStep - 1).coerceAtLeast(0)
+                    renderSetupStep()
+                }
+            }
+            footer.addView(back, LinearLayout.LayoutParams(0, dp(48), 0.65f).apply {
+                marginEnd = dp(8)
+            })
+        }
+        if (setupStep == 3) {
+            val finish = Button(this).apply {
+                text = label("Finish setup", "সেটআপ শেষ করুন")
+                isAllCaps = false
+                setOnClickListener {
+                    prefs.edit().putBoolean("setup_done", true).apply()
+                    finish()
+                }
+            }
+            footer.addView(finish, LinearLayout.LayoutParams(0, dp(48), 1f))
+            if (prefs.getString("book_folder_uri", null).isNullOrBlank()) {
+                val skip = TextView(this).apply {
+                    text = label("Set up later", "পরে করব")
+                    gravity = Gravity.CENTER
+                    setTextColor(accent)
+                    setPadding(dp(4), dp(8), dp(4), dp(8))
+                    setOnClickListener {
+                        prefs.edit().putBoolean("setup_done", true).apply()
+                        finish()
+                    }
+                }
+                root.addView(skip, ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+                ))
+            }
+        }
+        if (footer.childCount > 0) {
+            root.addView(footer, ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            ))
+        }
+        setContentView(root)
+    }
+
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
     private fun label(en: String, bn: String): String = if (prefs.getString("app_language", "en") == "bn") bn else en
 
