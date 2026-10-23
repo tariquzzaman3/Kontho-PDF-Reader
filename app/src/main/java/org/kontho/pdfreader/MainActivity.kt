@@ -94,11 +94,28 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        val theme = getSharedPreferences("kontho_library", MODE_PRIVATE).getString("app_theme", "system")
+        val dark = when (theme) {
+            "dark" -> true
+            "light" -> false
+            else -> (resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
+        }
+        setTheme(if (dark) android.R.style.Theme_Material_NoActionBar else android.R.style.Theme_Material_Light_NoActionBar)
         super.onCreate(savedInstanceState)
+        window.statusBarColor = if (dark) Color.rgb(20, 28, 26) else Color.rgb(18, 76, 66)
+        window.navigationBarColor = window.statusBarColor
         PDFBoxResourceLoader.init(applicationContext)
         tts = TextToSpeech(this, this)
         showLibrary()
         refreshLibrary()
+        if (!getSharedPreferences("kontho_library", MODE_PRIVATE).getBoolean("setup_done", false)) {
+            startActivity(Intent(this, SettingsActivity::class.java).putExtra("first_run", true))
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (::libraryGrid.isInitialized && showingLibrary) refreshLibrary()
     }
 
     private fun showLibrary() {
@@ -107,23 +124,31 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         tts?.stop()
         worker.execute { closeCurrentRenderer() }
 
+        val prefs = getSharedPreferences("kontho_library", MODE_PRIVATE)
+        val dark = when (prefs.getString("app_theme", "system")) {
+            "dark" -> true
+            "light" -> false
+            else -> (resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
+        }
+        val appLanguage = prefs.getString("app_language", "en") == "bn"
+        fun label(en: String, bn: String) = if (appLanguage) bn else en
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.rgb(248, 250, 249))
+            setBackgroundColor(if (dark) Color.rgb(25, 31, 29) else Color.rgb(248, 250, 249))
             setPadding(dp(16), dp(12), dp(16), dp(8))
         }
 
         val title = TextView(this).apply {
             text = "Kontho PDF Reader"
             textSize = 24f
-            setTextColor(Color.rgb(18, 76, 66))
+            setTextColor(if (dark) Color.rgb(175, 225, 210) else Color.rgb(18, 76, 66))
             gravity = Gravity.CENTER_VERTICAL
             typeface = Typeface.DEFAULT_BOLD
         }
         root.addView(title, matchWrap())
 
         val subtitle = TextView(this).apply {
-            text = "Your books · Read Bangla books aloud"
+            text = label("Your books · Read Bangla books aloud", "আপনার বই · বাংলা বই শুনুন")
             textSize = 14f
             setTextColor(Color.DKGRAY)
             setPadding(0, dp(4), 0, dp(10))
@@ -131,10 +156,10 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         root.addView(subtitle, matchWrap())
 
         val actions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        val folderButton = actionButton("Choose books folder") {
+        val folderButton = actionButton(label("Scan books folder", "বইয়ের ফোল্ডার স্ক্যান")) {
             chooseBookFolder.launch(null)
         }
-        val singlePdfButton = actionButton("Open one PDF") {
+        val singlePdfButton = actionButton(label("Open one PDF", "একটি PDF খুলুন")) {
             openPdf.launch(arrayOf("application/pdf"))
         }
         actions.addView(folderButton, LinearLayout.LayoutParams(0, dp(48), 1f).apply {
@@ -144,6 +169,9 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
             marginStart = dp(5)
         })
         root.addView(actions, matchWrap())
+        root.addView(actionButton(label("Settings ⚙", "সেটিংস ⚙")) {
+            startActivity(Intent(this, SettingsActivity::class.java))
+        }, matchWrap())
 
         libraryStatus = TextView(this).apply {
             textSize = 13f
@@ -153,7 +181,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         root.addView(libraryStatus, matchWrap())
 
         libraryGrid = GridLayout(this).apply {
-            columnCount = 2
+            columnCount = if (prefs.getString("library_view", "grid") == "list") 1 else prefs.getInt("grid_columns", 2).coerceIn(2, 4)
             alignmentMode = GridLayout.ALIGN_BOUNDS
             useDefaultMargins = false
         }
@@ -200,7 +228,13 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
                 }
             }
 
-            val sorted = found.values.sortedBy { it.name.lowercase(Locale.ROOT) }
+            val prefs = getSharedPreferences("kontho_library", MODE_PRIVATE)
+            val sortField = prefs.getString("sort_field", "name") ?: "name"
+            val descending = prefs.getBoolean("sort_descending", false)
+            val comparator = if (sortField == "date") compareBy<Book> { modifiedFor(it.uri) }
+                else compareBy(String.CASE_INSENSITIVE_ORDER) { it.name }
+            val sorted = if (descending) found.values.sortedWith(comparator.reversed())
+                else found.values.sortedWith(comparator)
             runOnUiThread {
                 if (!showingLibrary) return@runOnUiThread
                 books = sorted
@@ -259,18 +293,20 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
 
         books.forEach { book ->
             val card = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
+                orientation = if (getSharedPreferences("kontho_library", MODE_PRIVATE).getString("library_view", "grid") == "list") LinearLayout.HORIZONTAL else LinearLayout.VERTICAL
                 setPadding(dp(8), dp(8), dp(8), dp(8))
                 background = GradientDrawable().apply {
-                    setColor(Color.WHITE)
+                    val darkCard = getSharedPreferences("kontho_library", MODE_PRIVATE).getString("app_theme", "system") == "dark"
+                    setColor(if (darkCard) Color.rgb(39, 47, 44) else Color.WHITE)
                     cornerRadius = dp(10).toFloat()
-                    setStroke(dp(1), Color.rgb(225, 232, 229))
+                    setStroke(dp(1), if (darkCard) Color.rgb(70, 84, 78) else Color.rgb(225, 232, 229))
                 }
                 elevation = dp(1).toFloat()
                 isClickable = true
                 isFocusable = true
                 setOnClickListener { openBook(book) }
-                contentDescription = "Open ${book.name}"
+                setOnLongClickListener { showBookActions(book); true }
+                contentDescription = "Open ${book.name}. Long press for more actions."
             }
 
             val cover = ImageView(this).apply {
@@ -281,9 +317,9 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
                 adjustViewBounds = false
                 contentDescription = "Cover of ${book.name}"
             }
-            card.addView(cover, LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(172)
-            ))
+            val listMode = getSharedPreferences("kontho_library", MODE_PRIVATE).getString("library_view", "grid") == "list"
+            card.addView(cover, if (listMode) LinearLayout.LayoutParams(dp(64), dp(88)).apply { marginEnd = dp(10) }
+                else LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(172)))
 
             val title = TextView(this).apply {
                 text = book.name.removeSuffixIgnoreCase(".pdf")
@@ -304,13 +340,30 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
             }
             card.addView(coverPageLabel, matchWrap())
 
-            val params = GridLayout.LayoutParams().apply {
-                width = 0
-                height = ViewGroup.LayoutParams.WRAP_CONTENT
-                columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f)
-                setMargins(dp(4), dp(4), dp(4), dp(8))
+            if (listMode) {
+                val info = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    addView(title, matchWrap())
+                    addView(coverPageLabel, matchWrap())
+                }
+                card.addView(info, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                libraryGrid.addView(card, GridLayout.LayoutParams().apply {
+                    width = ViewGroup.LayoutParams.MATCH_PARENT
+                    height = ViewGroup.LayoutParams.WRAP_CONTENT
+                    columnSpec = GridLayout.spec(0, 1)
+                    setMargins(dp(2), dp(3), dp(2), dp(3))
+                })
+            } else {
+                card.addView(title, matchWrap())
+                card.addView(coverPageLabel, matchWrap())
+                val params = GridLayout.LayoutParams().apply {
+                    width = 0
+                    height = ViewGroup.LayoutParams.WRAP_CONTENT
+                    columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f)
+                    setMargins(dp(4), dp(4), dp(4), dp(8))
+                }
+                libraryGrid.addView(card, params)
             }
-            libraryGrid.addView(card, params)
             loadCoverThumbnail(book, cover, coverPageLabel)
         }
     }
@@ -684,6 +737,44 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         } catch (_: IllegalArgumentException) {
             // Use access granted for the current session when persistence is unavailable.
         }
+    }
+
+    private fun modifiedFor(uri: Uri): Long {
+        return try { DocumentFile.fromSingleUri(this, uri)?.lastModified() ?: 0L } catch (_: Exception) { 0L }
+    }
+
+    private fun showBookActions(book: Book) {
+        val bn = getSharedPreferences("kontho_library", MODE_PRIVATE).getString("app_language", "en") == "bn"
+        val options = if (bn) arrayOf("খুলুন", "নাম পরিবর্তন", "মুছুন") else arrayOf("Open", "Rename", "Delete")
+        AlertDialog.Builder(this).setTitle(book.name).setItems(options) { _, which ->
+            when (which) {
+                0 -> openBook(book)
+                1 -> renameBook(book)
+                2 -> AlertDialog.Builder(this)
+                    .setTitle(if (bn) "PDF মুছবেন?" else "Delete PDF?")
+                    .setMessage(if (bn) "এতে আসল ফাইলটি মুছে যাবে।" else "This deletes the actual PDF file and cannot be undone.")
+                    .setNegativeButton(if (bn) "বাতিল" else "Cancel", null)
+                    .setPositiveButton(if (bn) "মুছুন" else "Delete") { _, _ ->
+                        val success = try { DocumentFile.fromSingleUri(this, book.uri)?.delete() == true } catch (_: Exception) { false }
+                        if (success) refreshLibrary() else toast(if (bn) "ফাইলটি মুছতে অনুমতি নেই।" else "Android does not allow deleting this file. Check folder permissions.")
+                    }.show()
+            }
+        }.show()
+    }
+
+    private fun renameBook(book: Book) {
+        val bn = getSharedPreferences("kontho_library", MODE_PRIVATE).getString("app_language", "en") == "bn"
+        val input = EditText(this).apply { setText(book.name); selectAll() }
+        AlertDialog.Builder(this).setTitle(if (bn) "নাম পরিবর্তন" else "Rename PDF")
+            .setView(input)
+            .setNegativeButton(if (bn) "বাতিল" else "Cancel", null)
+            .setPositiveButton(if (bn) "সংরক্ষণ" else "Save") { _, _ ->
+                var name = input.text.toString().trim()
+                if (name.isBlank()) return@setPositiveButton
+                if (!name.endsWith(".pdf", true)) name += ".pdf"
+                val success = try { DocumentFile.fromSingleUri(this, book.uri)?.renameTo(name) == true } catch (_: Exception) { false }
+                if (success) refreshLibrary() else toast(if (bn) "ফাইলের নাম বদলাতে অনুমতি নেই।" else "Android does not allow renaming this file. Check folder permissions.")
+            }.show()
     }
 
     private fun rememberRecentBook(book: Book) {
