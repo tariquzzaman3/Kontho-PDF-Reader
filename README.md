@@ -1,51 +1,52 @@
 # Kontho PDF Reader
 
-A lightweight Android PDF reader designed for Bangla books, with a local book grid, PDF text extraction, and read-aloud controls.
+A lightweight Android PDF reader for Bangla and English books, with a simple book library, custom cover thumbnails, and read-aloud controls.
+
+## Library and personalization
+
+- On first launch, open **Settings** to choose language (English/Bangla), appearance (system/light/dark), list or grid, grid columns (2/3/4), and sort order.
+- Reopen Settings at any time to change these choices.
+- Choose a books folder. Kontho scans PDFs in that selected folder and its subfolders whenever the app starts, and you can refresh the library manually.
+- The library supports a grid with 2, 3, or 4 columns, or a compact list view.
+- Sort by filename ascending/descending or file date newest/oldest first.
+- Long-press a book to open, rename, or delete it. Rename/delete depend on whether the Android document provider grants write access.
+- Set any PDF page as the book cover thumbnail from inside the reader.
+- Choose a cache/audio folder through Android's folder picker. This saves the selected destination for future generated audio/cache files; the current MVP does not yet generate audiobook cache files.
+
+## Android storage limits
+
+Android does not allow an app to silently scan every private and shared folder. Select the folder(s) that contain your books through the system folder picker. You may choose phone storage or an SD card if Android exposes it in the picker. The app scans the selected folder each time it starts; it does not request broad "all files access" permission.
+
+The cache folder preference is a configured destination only at this stage. Audio caching will be connected when audiobook generation is implemented.
 
 ## Current MVP
 
-- Choose a books folder with Android's folder picker; the app scans PDFs in that folder and its subfolders.
-- Show discovered books in a two-column grid with cover thumbnails and filenames.
-- Remember the selected folder permission and recently opened PDFs.
-- Set any PDF page as a book's library cover, either from the page currently being viewed or by entering a page number.
-- Open PDF files using Android's document picker.
+- Open PDFs through Android's document picker.
 - Render PDF pages using Android's built-in `PdfRenderer`.
-- Extract selectable PDF text with PDFBox-Android.
-- Read the current page using Android's installed text-to-speech engine.
-- Keep books, cover selections, and reading content on the device; no account or server is required.
-- GitHub Actions builds a debug APK and uploads it as an artifact.
+- Extract selectable text with PDFBox-Android.
+- Read the current page using the phone's installed TTS engine.
+- Save selected cover-page preferences locally.
+- No account or server required.
 
-## Using the library
+## Limitations
 
-1. Open Kontho PDF Reader.
-2. Tap **Choose books folder** and select the folder containing your PDFs (for example, Downloads or a folder where you keep ebooks). Android requires you to grant folder access; the app cannot silently scan every file on the phone.
-3. Tap a book in the grid to open it.
-4. To replace its thumbnail cover, navigate to the page containing the cover and tap **Use this page as cover**. Or tap **Choose page…** and enter the PDF page number. The selection is stored locally for that book.
-5. Return to **Library** to see the updated cover. Books that have no saved cover selection use page 1 by default.
-
-## Important limitations
-
-- The grid can only list PDFs in the folder you grant access to, plus recently opened PDFs. Select a different folder to browse another location.
-- Bangla voice quality depends on the speech engine installed on the device. This version does not yet include a custom cloned voice or expressive audiobook model.
-- Scanned/image-only PDFs do not contain extractable text. OCR is not implemented yet.
-- Encrypted or damaged PDFs may not preview properly.
+- Bangla speech availability and voice quality depend on the installed TTS engine. A custom cloned voice and expressive audiobook model are not included yet.
+- Scanned/image-only PDFs need OCR, which is not implemented.
+- Some file providers do not permit rename/delete through their shared document interface.
+- Large or encrypted PDFs may fail to preview or extract.
 
 ## Build
 
-The project uses Gradle 8.9, JDK 17, Android Gradle Plugin 8.7.3, and Kotlin 2.0.21.
-
-On a computer with Android SDK platform 35 installed:
+Uses Gradle 8.9, JDK 17, Android Gradle Plugin 8.7.3, Kotlin 2.0.21, and Android SDK platform 35.
 
 ```bash
 gradle --no-daemon assembleDebug
 ```
 
-Debug APK output:
+APK output: `app/build/outputs/apk/debug/app-debug.apk`
 
-`app/build/outputs/apk/debug/app-debug.apk`
-
-A GitHub Actions run uploads the same file as the `kontho-pdf-reader-debug` artifact.
+GitHub Actions uploads a `kontho-pdf-reader-debug` artifact when the Android Build workflow succeeds.
 
 ## Privacy
 
-Do not commit private books, voice recordings, API keys, access tokens, or model weights to this repository. Only use voice recordings you own or have permission to use.
+Do not commit private books, voice recordings, access tokens, or model weights to this repository. Only use voice recordings you own or have permission to use.
