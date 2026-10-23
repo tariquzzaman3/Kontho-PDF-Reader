@@ -405,11 +405,15 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         }
 
         books.forEach { book ->
+            val darkCard = when (preferences.getString("app_theme", "system")) {
+                "dark" -> true
+                "light" -> false
+                else -> (resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
+            }
             val card = LinearLayout(this).apply {
                 orientation = if (getSharedPreferences("kontho_library", MODE_PRIVATE).getString("library_view", "grid") == "list") LinearLayout.HORIZONTAL else LinearLayout.VERTICAL
                 setPadding(dp(8), dp(8), dp(8), dp(8))
                 background = GradientDrawable().apply {
-                    val darkCard = getSharedPreferences("kontho_library", MODE_PRIVATE).getString("app_theme", "system") == "dark"
                     setColor(if (darkCard) Color.rgb(39, 47, 44) else Color.WHITE)
                     cornerRadius = dp(10).toFloat()
                     setStroke(dp(1), if (darkCard) Color.rgb(70, 84, 78) else Color.rgb(225, 232, 229))
@@ -437,7 +441,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             val title = TextView(this).apply {
                 text = book.name.removeSuffixIgnoreCase(".pdf")
                 textSize = 14f
-                setTextColor(Color.rgb(28, 43, 39))
+                setTextColor(if (darkCard) Color.rgb(235, 242, 238) else Color.rgb(28, 43, 39))
                 typeface = Typeface.DEFAULT_BOLD
                 maxLines = 2
                 ellipsize = android.text.TextUtils.TruncateAt.END
@@ -446,7 +450,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             val coverPageLabel = TextView(this).apply {
                 text = "Cover: page ${coverPageFor(book.uri) + 1}"
                 textSize = 12f
-                setTextColor(Color.rgb(89, 108, 101))
+                setTextColor(if (darkCard) Color.rgb(185, 202, 194) else Color.rgb(89, 108, 101))
                 setPadding(dp(2), dp(3), dp(2), dp(2))
             }
             if (listMode) {
