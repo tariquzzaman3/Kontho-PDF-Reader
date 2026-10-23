@@ -145,9 +145,14 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             settingsSnapshot = snapshot
             if (showingLibrary) {
                 val cachedBooks = books
+                val needsInitialFolderScan = cachedBooks.isEmpty() &&
+                    !preferences.getString(KEY_BOOK_FOLDER, null).isNullOrBlank()
                 showLibrary()
                 books = cachedBooks
                 renderBookGrid()
+                // On first launch, the folder is chosen in the setup wizard
+                // after the initial empty library is created. Scan it once now.
+                if (needsInitialFolderScan) refreshLibrary()
             } else {
                 recreate()
             }
@@ -836,6 +841,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         val bn = preferences.getString("app_language", "en") == "bn"
         fun label(en: String, bnLabel: String) = if (bn) bnLabel else en
         val popup = PopupMenu(this, anchor)
+        // Keep the anchor visible until the user has finished choosing an action.
+        mainHandler.removeCallbacks(hideReaderOverlaysRunnable)
         popup.menu.add(0, 0, 0, label("Go to page…", "পৃষ্ঠা নম্বরে যান…"))
         popup.menu.add(0, 1, 1, label("Set current page as cover", "বর্তমান পৃষ্ঠাটি কভার করুন"))
         popup.menu.add(0, 2, 2, label("Choose cover page…", "কভার পৃষ্ঠা বাছুন…"))
@@ -853,6 +860,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             }
             true
         }
+        popup.setOnDismissListener { showReaderOverlays() }
         popup.show()
     }
 
@@ -1069,11 +1077,10 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             tts?.setSpeechRate(preferences.getFloat("narration_rate", 0.85f).coerceIn(0.65f, 1.15f))
             tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                 override fun onStart(utteranceId: String?) {
+                    // Do not restart the two-second overlay timer for every
+                    // TTS sentence; narration continues with controls hidden.
                     mainHandler.post {
-                        if (!isFinishing && !showingLibrary) {
-                            isNarrating = true
-                            showReaderOverlays()
-                        }
+                        if (!isFinishing && !showingLibrary) isNarrating = true
                     }
                 }
 
