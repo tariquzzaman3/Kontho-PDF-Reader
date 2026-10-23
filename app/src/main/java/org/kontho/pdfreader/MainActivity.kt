@@ -1,6 +1,6 @@
 package org.kontho.pdfreader
 
-import android.app.Activity
+import androidx.activity.ComponentActivity
 import android.app.AlertDialog
 import android.content.Intent
 import android.database.Cursor
@@ -38,7 +38,7 @@ import java.util.concurrent.Executors
 
 private data class Book(val uri: Uri, val name: String)
 
-class MainActivity : Activity(), TextToSpeech.OnInitListener {
+class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private val worker = Executors.newSingleThreadExecutor()
     private val thumbnailWorker = Executors.newSingleThreadExecutor()
     private val preferences by lazy { getSharedPreferences("kontho_library", MODE_PRIVATE) }
@@ -201,7 +201,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         }
         val scroll = ScrollView(this).apply {
             isFillViewport = true
-            addView(libraryGrid, ScrollView.LayoutParams(
+            addView(libraryGrid, ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
             ))
         }
@@ -567,7 +567,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
             setTextColor(if (darkReader) Color.WHITE else Color.rgb(35, 42, 40))
             setBackgroundColor(if (darkReader) Color.rgb(25, 31, 29) else Color.TRANSPARENT)
             setPadding(dp(8), dp(8), dp(8), dp(8))
-            textIsSelectable = true
+            isTextSelectable = true
         }
         val textScroll = ScrollView(this).apply { addView(extractedText) }
         root.addView(textScroll, LinearLayout.LayoutParams(
