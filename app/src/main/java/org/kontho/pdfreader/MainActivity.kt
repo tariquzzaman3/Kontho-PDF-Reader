@@ -145,7 +145,7 @@ class MainActivity : ComponentActivity() {
             isFillViewport = true
             clipToPadding = false
             setPadding(0, dp(6), 0, dp(6))
-            addView(pageImage, ScrollView.LayoutParams(
+            addView(pageImage, ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
             ))
