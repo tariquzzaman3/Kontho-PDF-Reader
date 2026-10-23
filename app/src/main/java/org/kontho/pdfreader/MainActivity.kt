@@ -630,8 +630,13 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             isClickable = true
             isFocusable = true
             setOnClickListener {
-                showReaderOverlays()
-                if (isNarrating) stopReaderNarration() else readCurrentPage()
+                if (isNarrating) {
+                    stopReaderNarration()
+                    showReaderOverlays()
+                } else {
+                    showReaderOverlays()
+                    readCurrentPage()
+                }
             }
         }
         readerStopButton = TextView(this).apply {
@@ -1050,7 +1055,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         isNarrating = false
         lastNarrationUtteranceId = null
         if (::readerPlaybackPanel.isInitialized) readerPlaybackPanel.visibility = View.GONE
-        mainHandler.removeCallbacks(hideReaderOverlaysRunnable)
+        // Preserve the existing two-second hide timer for the top menu.
     }
 
     private fun splitNarrationText(text: String, maxLength: Int = 2500): List<String> {
