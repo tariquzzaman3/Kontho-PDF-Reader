@@ -567,7 +567,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             setTextColor(if (darkReader) Color.WHITE else Color.rgb(35, 42, 40))
             setBackgroundColor(if (darkReader) Color.rgb(25, 31, 29) else Color.TRANSPARENT)
             setPadding(dp(8), dp(8), dp(8), dp(8))
-            isTextSelectable = true
+            setTextIsSelectable(true)
         }
         val textScroll = ScrollView(this).apply { addView(extractedText) }
         root.addView(textScroll, LinearLayout.LayoutParams(
