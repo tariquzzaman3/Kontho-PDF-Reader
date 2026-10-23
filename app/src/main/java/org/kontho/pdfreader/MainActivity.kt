@@ -459,6 +459,8 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
     }
 
     private fun buildReaderScreen() {
+        val appLanguageReader = getSharedPreferences("kontho_library", MODE_PRIVATE).getString("app_language", "en") == "bn"
+        fun readerLabel(en: String, bn: String) = if (appLanguageReader) bn else en
         val darkReader = when (getSharedPreferences("kontho_library", MODE_PRIVATE).getString("app_theme", "system")) {
             "dark" -> true
             "light" -> false
@@ -474,12 +476,12 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        val backButton = actionButton("← Library") { showLibrary(); refreshLibrary() }
+        val backButton = actionButton(readerLabel("← Library", "← লাইব্রেরি")) { showLibrary(); refreshLibrary() }
         topRow.addView(backButton, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.WRAP_CONTENT, dp(44)
         ))
         val readerTitle = TextView(this).apply {
-            text = currentBook?.name ?: "PDF Reader"
+            text = currentBook?.name ?: readerLabel("PDF Reader", "PDF রিডার")
             textSize = 16f
             setTextColor(if (darkReader) Color.rgb(175, 225, 210) else Color.rgb(18, 76, 66))
             typeface = Typeface.DEFAULT_BOLD
@@ -504,8 +506,8 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
         }
-        previousButton = actionButton("Previous page") { showPage(currentPage - 1) }
-        nextButton = actionButton("Next page") { showPage(currentPage + 1) }
+        previousButton = actionButton(readerLabel("Previous page", "আগের পৃষ্ঠা")) { showPage(currentPage - 1) }
+        nextButton = actionButton(readerLabel("Next page", "পরের পৃষ্ঠা")) { showPage(currentPage + 1) }
         navigation.addView(previousButton, LinearLayout.LayoutParams(0, dp(44), 1f).apply {
             marginEnd = dp(4)
         })
@@ -525,8 +527,8 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         root.addView(pageLabel, matchWrap())
 
         val coverActions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        coverButton = actionButton("Use this page as cover") { saveCurrentPageAsCover() }
-        val chooseCoverButton = actionButton("Choose page…") { showCoverPageDialog() }
+        coverButton = actionButton(readerLabel("Use this page as cover", "এই পৃষ্ঠাটি কভার করুন")) { saveCurrentPageAsCover() }
+        val chooseCoverButton = actionButton(readerLabel("Choose page…", "পৃষ্ঠা বাছুন…")) { showCoverPageDialog() }
         coverActions.addView(coverButton, LinearLayout.LayoutParams(0, dp(44), 1f).apply {
             marginEnd = dp(4)
         })
@@ -549,8 +551,8 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         })
 
         val speechActions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        readButton = actionButton("Read page aloud") { readCurrentPage() }
-        stopButton = actionButton("Stop") { tts?.stop() }
+        readButton = actionButton(readerLabel("Read page aloud", "জোরে পড়ুন")) { readCurrentPage() }
+        stopButton = actionButton(readerLabel("Stop", "থামুন")) { tts?.stop() }
         speechActions.addView(readButton, LinearLayout.LayoutParams(0, dp(44), 1f).apply {
             marginEnd = dp(4)
         })
@@ -560,7 +562,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         root.addView(speechActions, matchWrap())
 
         extractedText = TextView(this).apply {
-            text = "Page text will appear here."
+            text = readerLabel("Page text will appear here.", "এখানে পৃষ্ঠার লেখা দেখা যাবে।")
             textSize = 16f
             setTextColor(if (darkReader) Color.WHITE else Color.rgb(35, 42, 40))
             setBackgroundColor(if (darkReader) Color.rgb(25, 31, 29) else Color.TRANSPARENT)
