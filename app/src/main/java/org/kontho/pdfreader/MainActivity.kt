@@ -135,7 +135,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
     private fun currentSettingsSnapshot(): String {
         val p = getSharedPreferences("kontho_library", MODE_PRIVATE)
-        return listOf("app_theme", "app_language", "library_view", "grid_columns", "sort_field", "sort_descending")
+        return listOf("app_theme", "app_language", "library_view", "grid_columns", "sort_field", "sort_descending", "book_folder_uri")
             .joinToString("|") { key -> p.all[key]?.toString() ?: "" }
     }
 
