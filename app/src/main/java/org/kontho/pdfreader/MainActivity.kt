@@ -54,6 +54,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
     private var tts: TextToSpeech? = null
     private var ttsReady = false
     private var showingLibrary = true
+    private var settingsSnapshot = ""
 
     private lateinit var libraryStatus: TextView
     private lateinit var libraryGrid: GridLayout
@@ -108,13 +109,26 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         tts = TextToSpeech(this, this)
         showLibrary()
         refreshLibrary()
+        settingsSnapshot = currentSettingsSnapshot()
         if (!getSharedPreferences("kontho_library", MODE_PRIVATE).getBoolean("setup_done", false)) {
             startActivity(Intent(this, SettingsActivity::class.java).putExtra("first_run", true))
         }
     }
 
+    private fun currentSettingsSnapshot(): String {
+        val p = getSharedPreferences("kontho_library", MODE_PRIVATE)
+        return listOf("app_theme", "app_language", "library_view", "grid_columns", "sort_field", "sort_descending")
+            .joinToString("|") { key -> p.all[key]?.toString() ?: "" }
+    }
+
     override fun onResume() {
         super.onResume()
+        val snapshot = currentSettingsSnapshot()
+        if (settingsSnapshot.isNotEmpty() && snapshot != settingsSnapshot) {
+            recreate()
+            return
+        }
+        if (snapshot.isNotEmpty()) settingsSnapshot = snapshot
         if (::libraryGrid.isInitialized && showingLibrary) refreshLibrary()
     }
 
