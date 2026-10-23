@@ -46,7 +46,10 @@ class SettingsActivity : ComponentActivity() {
     private val chooseSetupBooks = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) {
             try {
-                contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                )
             } catch (_: Exception) { }
             prefs.edit().putString("book_folder_uri", uri.toString()).apply()
         }
