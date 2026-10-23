@@ -182,6 +182,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             else -> (resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
         }
         val appLanguage = prefs.getString("app_language", "en") == "bn"
+        setTheme(if (dark) android.R.style.Theme_Material_NoActionBar else android.R.style.Theme_Material_Light_NoActionBar)
         fun label(en: String, bn: String) = if (appLanguage) bn else en
         window.statusBarColor = if (dark) Color.rgb(20, 28, 26) else Color.rgb(18, 76, 66)
         window.navigationBarColor = window.statusBarColor
