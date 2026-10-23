@@ -8,6 +8,7 @@ import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.view.Gravity
+import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.LinearLayout
@@ -80,7 +81,7 @@ class SettingsActivity : ComponentActivity() {
             "light" -> false
             else -> (resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
         }
-        val background = if (dark) Color.rgb(22, 29, 27) else Color.rgb(248, 250, 249)
+        val screenBackground = if (dark) Color.rgb(22, 29, 27) else Color.rgb(248, 250, 249)
         val foreground = if (dark) Color.WHITE else Color.rgb(27, 48, 42)
         val muted = if (dark) Color.rgb(187, 201, 195) else Color.rgb(99, 117, 109)
         val accent = Color.rgb(18, 104, 84)
@@ -91,7 +92,7 @@ class SettingsActivity : ComponentActivity() {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(20), dp(12), dp(20), dp(14))
-            setBackgroundColor(background)
+            setBackgroundColor(screenBackground)
         }
         val scroll = android.widget.ScrollView(this).apply {
             isFillViewport = true
