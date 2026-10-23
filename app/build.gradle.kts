@@ -11,8 +11,8 @@ android {
         applicationId = "org.kontho.pdfreader"
         minSdk = 23
         targetSdk = 28
-        versionCode = 3
-        versionName = "0.3.0"
+        versionCode = 4
+        versionName = "0.4.0"
     }
 
     compileOptions {
@@ -34,6 +34,7 @@ android {
 dependencies {
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.activity:activity-ktx:1.9.3")
+    implementation("androidx.swiperefreshlayout:swiperefreshlayout:1.1.0")
     implementation("androidx.documentfile:documentfile:1.0.1")
     implementation("com.tom-roush:pdfbox-android:2.0.27.0")
 }
