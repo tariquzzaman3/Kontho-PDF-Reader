@@ -1764,9 +1764,9 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                     throw IOException("Tesseract could not initialize the selected OCR language.")
                 }
 
-                // These scanned book pages are single-column, but may contain
-                // headings or footers. AUTO avoids the default single-block
-                // mode dropping text at the top of a page.
+                // These scanned book pages are usually single-column but can
+                // include separate headings, body text, and page numbers. AUTO
+                // lets Tesseract detect those regions instead of assuming one block.
                 tess.setPageSegMode(TessBaseAPI.PageSegMode.PSM_AUTO)
                 tess.setImage(bitmap)
                 var recognized = tess.getUTF8Text().orEmpty().trim()
