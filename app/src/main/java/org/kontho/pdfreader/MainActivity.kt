@@ -16,6 +16,7 @@ import android.os.Looper
 import android.graphics.pdf.PdfRenderer
 import android.net.Uri
 import android.os.Bundle
+import android.os.CancellationSignal
 import android.os.ParcelFileDescriptor
 import android.provider.OpenableColumns
 import android.print.PageRange
@@ -1941,6 +1942,96 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                     }
                 }
             })
+        }
+    }
+
+    private fun shareCurrentBook() {
+        val book = currentBook
+        if (book == null) {
+            toast("Open a PDF before sharing.")
+            return
+        }
+        try {
+            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                type = "application/pdf"
+                putExtra(Intent.EXTRA_STREAM, book.uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            startActivity(Intent.createChooser(shareIntent, "Share ${book.name}"))
+        } catch (error: Exception) {
+            toast("Could not share this PDF: ${error.localizedMessage ?: "unknown error"}")
+        }
+    }
+
+    private fun printCurrentBook() {
+        val book = currentBook
+        if (book == null) {
+            toast("Open a PDF before printing.")
+            return
+        }
+        val printManager = getSystemService(PRINT_SERVICE) as? PrintManager
+        if (printManager == null) {
+            toast("Printing is not available on this device.")
+            return
+        }
+
+        val adapter = object : PrintDocumentAdapter() {
+            override fun onLayout(
+                oldAttributes: PrintAttributes?,
+                newAttributes: PrintAttributes?,
+                cancellationSignal: CancellationSignal?,
+                callback: LayoutResultCallback,
+                extras: Bundle?
+            ) {
+                if (cancellationSignal?.isCanceled == true) {
+                    callback.onLayoutCancelled()
+                    return
+                }
+                val info = PrintDocumentInfo.Builder(book.name)
+                    .setContentType(PrintDocumentInfo.CONTENT_TYPE_DOCUMENT)
+                    .setPageCount(PrintDocumentInfo.PAGE_COUNT_UNKNOWN)
+                    .build()
+                callback.onLayoutFinished(info, oldAttributes != newAttributes)
+            }
+
+            override fun onWrite(
+                pages: Array<out PageRange>?,
+                destination: ParcelFileDescriptor,
+                cancellationSignal: CancellationSignal?,
+                callback: WriteResultCallback
+            ) {
+                try {
+                    val source = contentResolver.openInputStream(book.uri)
+                        ?: throw IOException("Could not read the selected PDF.")
+                    source.use { input ->
+                        ParcelFileDescriptor.AutoCloseOutputStream(destination).use { output ->
+                            val buffer = ByteArray(64 * 1024)
+                            while (true) {
+                                if (cancellationSignal?.isCanceled == true) {
+                                    throw java.io.InterruptedIOException("Print cancelled.")
+                                }
+                                val count = input.read(buffer)
+                                if (count < 0) break
+                                output.write(buffer, 0, count)
+                            }
+                            output.flush()
+                        }
+                    }
+                    callback.onWriteFinished(arrayOf(PageRange.ALL_PAGES))
+                } catch (error: Exception) {
+                    if (cancellationSignal?.isCanceled == true) {
+                        callback.onWriteCancelled()
+                    } else {
+                        callback.onWriteFailed(error.localizedMessage ?: "Could not prepare this PDF for printing.")
+                    }
+                }
+            }
+        }
+
+        try {
+            printManager.print(book.name, adapter, null)
+        } catch (error: Exception) {
+            toast("Could not start printing: ${error.localizedMessage ?: "unknown error"}")
         }
     }
 
