@@ -12,6 +12,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.LinearLayout
+import android.widget.ImageView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -123,17 +124,10 @@ class SettingsActivity : ComponentActivity() {
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
         ))
 
-        val logo = TextView(this).apply {
-            text = "কণ্ঠ"
-            textSize = 29f
-            typeface = Typeface.DEFAULT_BOLD
-            gravity = Gravity.CENTER
-            setTextColor(Color.WHITE)
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.OVAL
-                setColor(accent)
-            }
-            contentDescription = "Kontho logo"
+        val logo = ImageView(this).apply {
+            setImageResource(R.drawable.kontho_logo)
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            contentDescription = "কণ্ঠ · Kontho PDF Reader logo"
         }
         content.addView(logo, LinearLayout.LayoutParams(dp(112), dp(112)).apply {
             bottomMargin = dp(10)
