@@ -1323,6 +1323,18 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         }
     }
 
+    private fun showPage(index: Int) {
+        if (index !in 0 until pageCount || index !in pageImages.indices) return
+        currentPage = index
+        pageText = pageTextCache[index].orEmpty()
+        readerScroll.post {
+            if (index in pageImages.indices) {
+                readerScroll.smoothScrollTo(0, pageImages[index].top)
+                renderPageIntoView(index, readerGeneration)
+            }
+        }
+    }
+
     private fun extractText(uri: Uri, pageNumber: Int): String {
         contentResolver.openInputStream(uri).use { input ->
             if (input == null) return ""
