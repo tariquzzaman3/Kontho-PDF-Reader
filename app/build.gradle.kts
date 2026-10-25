@@ -1,3 +1,5 @@
+import java.io.File
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -8,7 +10,7 @@ val uploadStorePassword = System.getenv("ANDROID_UPLOAD_STORE_PASSWORD")
 val uploadKeyAlias = System.getenv("ANDROID_UPLOAD_KEY_ALIAS")
 val uploadKeyPassword = System.getenv("ANDROID_UPLOAD_KEY_PASSWORD")
 val releaseSigningReady = !uploadKeyStorePath.isNullOrBlank() &&
-    java.io.File(uploadKeyStorePath).isFile &&
+    File(uploadKeyStorePath).isFile &&
     !uploadStorePassword.isNullOrBlank() &&
     !uploadKeyAlias.isNullOrBlank() &&
     !uploadKeyPassword.isNullOrBlank()
