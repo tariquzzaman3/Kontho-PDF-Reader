@@ -4,42 +4,49 @@ Kontho is a Kotlin Android PDF reader for Bangla and English books, designed as 
 
 ## First-run setup
 
-On the first launch, a short step-by-step wizard presents:
+On first launch, a short step-by-step wizard presents:
 1. Language: বাংলা or English (shown with Bangladesh and UK flags).
 2. Theme: system, light, or dark.
 3. Library layout: list or grid.
 4. PDF folder: select the folder Kontho should scan.
 
-The Settings gear keeps these preferences available afterward, plus grid-column count, sort order, and the future audio/cache destination.
+The Settings gear keeps these preferences available afterward, plus grid-column count, sort order, narration pace, OCR language, and the future audio/cache destination.
 
 ## Library and PDF reader
 
-- The library header contains the app name and Settings gear; the Sort popup sits below it.
-- Choose from a list or grid of PDF books, with grid size set in Settings.
-- Pull down at the top of the library to rescan the chosen folder. Sorting is maintained during refresh; merely returning to the app does not continuously rescan.
-- Book thumbnails can use a page chosen from the PDF. Long-press a book for open, rename, or delete where Android's document provider permits those actions.
+- The library header contains the app name and Settings gear; the Sort popup sits beneath it.
+- Choose list or grid, with grid size configured in Settings.
+- Pull down to rescan the chosen folder. Sorting is maintained, and returning to the app or rotating the device does not rescan the folder.
+- Book thumbnails can use a page chosen from the PDF. Long-press a book to open, rename, or delete it where Android's document provider allows those actions.
 - Open a book in immersive full-screen mode. All PDF pages flow vertically in one continuous scroll.
-- The top-right glass-style three-dot menu and the bottom-center read-aloud controls fade after two seconds. Scrolling pages does not reveal these controls.
-- Jump to a page, set a cover page, or open another PDF from the reader menu.
-- Extract selectable text with PDFBox-Android and read the current page aloud through Android's installed TTS engine.
-- For text containing Bangla, prefer Bangladeshi Bangla then fall back to Bengali if available; English pages use an English voice. Narration includes paragraph pauses and has an adjustable pace.
+- Two-finger pinch zoom applies to every page together. The zoom controls are available in the reader menu; zooming does not affect the library.
+- The top-right glass-style three-dot menu and bottom-center playback controls fade after two seconds. Scrolling does not reveal these controls.
+- Reader menu actions include orientation rotation, device-default read aloud, OCR read aloud and settings, saving a copy of the open PDF, page navigation, and cover selection.
+- Playback controls include play, pause/resume, stop, restart, and close.
+- A small green progress bar displays brief status messages when scanning books, rendering pages, preparing speech, downloading OCR models, scanning OCR, or saving a copy.
 
-## Narration and AI voice status
+## OCR details
 
-The current reader uses the Android TTS voice installed on the device. Availability and quality vary by device. Slower narration and pauses do not create a custom expressive AI storyteller voice or guarantee emotional acting for character dialogue.
+OCR uses the open-source Tesseract4Android engine with the fast Bengali and English trained-data models. On first OCR use, the selected model(s) are downloaded from the official `tesseract-ocr/tessdata_fast` repository and kept in the app's private storage. That first model download requires an internet connection; later OCR operations can run locally with the cached models.
 
-A custom voice model still requires a separately selected, legally usable model and recordings that are licensed or otherwise permitted for training. YouTube audio should not be used without the necessary rights. Model training, custom voice assets, and inference are not included in this Android build.
+OCR is processed one page at a time to limit memory use, and recognized text is cached for future narration. Use the OCR gear to select Bengali, English, or both, or clear the OCR text cache.
+
+## Speech details
+
+Read aloud uses the Android Text-to-Speech engine and device-default locale. The voice, Bangla support, and quality depend on the engine installed on the phone. Rate and pitch can be adjusted from the voice settings. Paragraph pauses are inserted between short TTS segments. Pause/resume restarts the current paragraph because Android's TTS API does not provide a consistent universal pause operation.
+
+A custom expressive AI voice still requires a separately selected, legally usable model and recordings for which the user has permission. Custom voice training and emotional acting are not included in this build.
 
 ## Limitations
 
-- Scanned/image-only PDFs need OCR; OCR is not implemented.
-- Very large or encrypted PDFs may fail to render or extract.
+- OCR accuracy depends on page quality and the trained model. Complex layouts, columns, small type, and low-resolution scans can be imperfect.
+- Large or encrypted PDFs may fail to render or extract.
 - Rename/delete depend on document-provider permissions.
 - The selected audio/cache folder is saved as a future destination; generated audiobook files are not created yet.
 
 ## Build
 
-Uses JDK 17, Gradle 8.9, Android Gradle Plugin 8.7.3, Kotlin 2.0.21, and Android SDK platform 35.
+Uses JDK 17, Gradle 8.9, Android Gradle Plugin 8.7.3, Kotlin 2.0.21, Android SDK platform 35 and Tesseract4Android 4.9.0.
 
 ```bash
 gradle --no-daemon assembleDebug
