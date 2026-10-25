@@ -658,7 +658,14 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             View.SYSTEM_UI_FLAG_LAYOUT_STABLE
         )
 
-        val root = FrameLayout(this).apply {
+        val root = object : FrameLayout(this) {
+            override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+                // Observe all multi-touch events before ScrollView/HorizontalScrollView
+                // can intercept them, so pinch zoom is reliable across the full page.
+                scaleGestureDetector?.onTouchEvent(event)
+                return super.dispatchTouchEvent(event)
+            }
+        }.apply {
             setBackgroundColor(if (dark) Color.rgb(34, 38, 36) else Color.rgb(221, 225, 222))
         }
         horizontalPageScroll = HorizontalScrollView(this).apply {
@@ -776,9 +783,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         val touchSlop = ViewConfiguration.get(this).scaledTouchSlop
         readerScroll.setOnTouchListener { _, event ->
             val detector = scaleGestureDetector
-            val wasScaling = detector?.isInProgress == true
-            detector?.onTouchEvent(event)
-            val scaling = wasScaling || detector?.isInProgress == true || event.pointerCount > 1
+            val scaling = detector?.isInProgress == true || event.pointerCount > 1
 
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
@@ -831,7 +836,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     }
 
     private fun createProgressPanel(dark: Boolean): LinearLayout {
-        val panel = LinearLayout(this).apply {
+        progressPanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(9), dp(3), dp(9), dp(4))
             background = GradientDrawable().apply {
@@ -853,13 +858,13 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             progressTintList = ColorStateList.valueOf(Color.rgb(18, 135, 86))
             indeterminateTintList = ColorStateList.valueOf(Color.rgb(18, 135, 86))
         }
-        panel.addView(progressLabel, LinearLayout.LayoutParams(
+        progressPanel.addView(progressLabel, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
         ).apply { bottomMargin = dp(2) })
-        panel.addView(progressBar, LinearLayout.LayoutParams(
+        progressPanel.addView(progressBar, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, dp(3)
         ))
-        return panel
+        return progressPanel
     }
 
     private fun setBusy(message: String, percent: Int? = null) {
@@ -1194,21 +1199,27 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             setTextColor(Color.rgb(37, 58, 49))
         }
         zoomRow.addView(zoomTitle, LinearLayout.LayoutParams(0, dp(44), 1f))
-        val zoomOut = Button(this).apply {
-            text = "−"
-            isAllCaps = false
-            setOnClickListener { applyZoom(zoomScale - 0.1f, rerender = true) }
-        }
         val zoomPercent = TextView(this).apply {
             text = "${(zoomScale * 100).roundToInt()}%"
             textSize = 14f
             gravity = Gravity.CENTER
             setTextColor(Color.rgb(30, 55, 46))
         }
+        val zoomOut = Button(this).apply {
+            text = "−"
+            isAllCaps = false
+            setOnClickListener {
+                applyZoom(zoomScale - 0.1f, rerender = true)
+                zoomPercent.text = "${(zoomScale * 100).roundToInt()}%"
+            }
+        }
         val zoomIn = Button(this).apply {
             text = "+"
             isAllCaps = false
-            setOnClickListener { applyZoom(zoomScale + 0.1f, rerender = true) }
+            setOnClickListener {
+                applyZoom(zoomScale + 0.1f, rerender = true)
+                zoomPercent.text = "${(zoomScale * 100).roundToInt()}%"
+            }
         }
         zoomRow.addView(zoomOut, LinearLayout.LayoutParams(dp(52), dp(44)))
         zoomRow.addView(zoomPercent, LinearLayout.LayoutParams(dp(64), dp(44)))
