@@ -668,7 +668,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         pageDimensions = emptyList()
         queuedPageRenders.clear()
         releaseReaderBitmaps()
-        stopReaderNarration()        val generation = ++readerGeneration
+        stopReaderNarration()
+        val generation = ++readerGeneration
         buildReaderScreen()
 
         worker.execute {
