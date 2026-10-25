@@ -27,9 +27,9 @@ The Settings gear keeps these preferences available afterward, plus grid-column 
 
 ## OCR details
 
-OCR uses the open-source Tesseract4Android engine with the fast Bengali and English trained-data models. On first OCR use, the selected model(s) are downloaded from the official `tesseract-ocr/tessdata_fast` repository and kept in the app's private storage. That first model download requires an internet connection; later OCR operations can run locally with the cached models.
+OCR uses the open-source Tesseract4Android engine. Bengali and Bengali+English selections prefer the official `tesseract-ocr/tessdata_best` models for improved recognition; English-only uses `tessdata_fast` for speed. A Bengali model download requires an internet connection on first use, while later scans work locally. If the improved model cannot be downloaded but the earlier fast model is already cached, Kontho falls back to that cached model.
 
-OCR is processed one page at a time to limit memory use, and recognized text is cached for future narration. Use the OCR gear to select Bengali, English, or both, or clear the OCR text cache.
+Each scanned page is rendered in print mode at OCR-friendly resolution and recognized with automatic page segmentation, with a sparse-text retry for pages containing very little text (such as title pages). OCR runs one page at a time to limit memory use. New OCR results use a versioned cache so earlier, potentially incomplete scans are not reused after the recognition improvements. Use the OCR gear to select Bengali, English, or both, or clear the OCR text cache.
 
 ## Speech details
 
