@@ -13,6 +13,8 @@ The app does not provide user accounts and currently includes no advertisements,
 
 On first use of OCR for a language, Kontho downloads the public Tesseract language model(s) from the `tesseract-ocr/tessdata_fast` repository on GitHub over HTTPS. GitHub may receive ordinary connection metadata, such as your IP address. Once the models are cached, OCR recognition runs locally on your device.
 
+When automatic update checks are enabled, Kontho requests public release metadata from GitHub at most once per day; a manual check in Settings makes the same metadata request. These requests do not include PDFs, OCR text, or library contents. GitHub may receive ordinary connection metadata for these requests too.
+
 Kontho does not upload your PDFs or OCR results to its own server.
 
 ## Text-to-speech
