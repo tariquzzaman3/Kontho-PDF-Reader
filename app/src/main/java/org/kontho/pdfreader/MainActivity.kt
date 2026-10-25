@@ -545,18 +545,10 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 ellipsize = android.text.TextUtils.TruncateAt.END
                 setPadding(dp(2), dp(8), dp(2), 0)
             }
-            val coverPageLabel = TextView(this).apply {
-                text = "Cover: page ${coverPageFor(book.uri) + 1}"
-                textSize = 12f
-                setTextColor(if (darkCard) Color.rgb(185, 202, 194) else Color.rgb(89, 108, 101))
-                setPadding(dp(2), dp(3), dp(2), dp(2))
-            }
             if (listMode) {
                 val info = LinearLayout(this).apply {
                     orientation = LinearLayout.VERTICAL
                     addView(title, matchWrap())
-                    addView(coverPageLabel, matchWrap())
-                }
                 card.addView(info, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
                 libraryGrid.addView(card, GridLayout.LayoutParams().apply {
                     width = ViewGroup.LayoutParams.MATCH_PARENT
@@ -731,8 +723,16 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             elevation = dp(6).toFloat()
             contentDescription = if (preferences.getString("app_language", "en") == "bn") "আরও বিকল্প" else "More options"
             setOnClickListener {
-                showReaderOverlays()
-                showReaderMenu(this)
+                if (tag == "menu_open") {
+                    tag = null
+                    text = "⋮"
+                    showReaderOverlays()
+                } else {
+                    tag = "menu_open"
+                    text = "×"
+                    showReaderOverlays()
+                    showReaderMenu(this)
+                }
             }
         }
         root.addView(readerMenuButton, FrameLayout.LayoutParams(dp(52), dp(52),
