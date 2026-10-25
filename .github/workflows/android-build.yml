@@ -35,12 +35,15 @@ jobs:
           gradle-version: "8.13"
 
       - name: Prepare release upload key (optional)
-        if: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_BASE64 != '' }}
         env:
           ANDROID_UPLOAD_KEYSTORE_BASE64: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_BASE64 }}
         run: |
-          printf '%s' "$ANDROID_UPLOAD_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/kontho-upload.jks"
-          echo "ANDROID_UPLOAD_KEYSTORE_PATH=$RUNNER_TEMP/kontho-upload.jks" >> "$GITHUB_ENV"
+          if [ -n "$ANDROID_UPLOAD_KEYSTORE_BASE64" ]; then
+            printf '%s' "$ANDROID_UPLOAD_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/kontho-upload.jks"
+            echo "ANDROID_UPLOAD_KEYSTORE_PATH=$RUNNER_TEMP/kontho-upload.jks" >> "$GITHUB_ENV"
+          else
+            echo "No upload key configured; the release AAB will be unsigned."
+          fi
 
       - name: Build debug APK and release bundle
         env:
