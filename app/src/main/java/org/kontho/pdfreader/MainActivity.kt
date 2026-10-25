@@ -1209,7 +1209,6 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         content.addView(menuHeaderDivider, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, dp(1)
         ))
-        var popup: PopupWindow? = null
 
         fun addAction(title: String, action: () -> Unit, settingsAction: (() -> Unit)? = null) {
             val row = LinearLayout(this).apply {
@@ -1225,7 +1224,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 isClickable = true
                 isFocusable = true
                 setOnClickListener {
-                    popup?.dismiss()
+                    readerOptionsPopup?.dismiss()
                     action()
                 }
             }
@@ -1240,7 +1239,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                     isClickable = true
                     isFocusable = true
                     setOnClickListener {
-                        popup?.dismiss()
+                        readerOptionsPopup?.dismiss()
                         settingsAction()
                     }
                 }
@@ -1299,7 +1298,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 pageJumpInput.error = label("Enter a page from 1 to " + pageCount, "১ থেকে " + pageCount + " এর মধ্যে পৃষ্ঠা লিখুন")
                 return
             }
-            popup?.dismiss()
+            readerOptionsPopup?.dismiss()
             showPage(pageNumber - 1)
         }
         pageJumpInput.setOnEditorActionListener { _, actionId, _ ->
@@ -1437,7 +1436,6 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 showReaderOverlays()
             }
         }
-        popup = menuPopup
         readerOptionsPopup = menuPopup
         menuPopup.showAsDropDown(anchor, 0, dp(4), Gravity.END)
     }
@@ -1495,7 +1493,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                     .apply()
                 tts?.setSpeechRate(rateSetting)
                 tts?.setPitch(pitchSetting)
-                popup?.dismiss()
+                readerOptionsPopup?.dismiss()
             }
         }
         dialog.show()
@@ -1521,7 +1519,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             .setTitle(if (language) "OCR ভাষা" else "OCR language")
             .setSingleChoiceItems(labels, selected) { dialog, which ->
                 preferences.edit().putString("ocr_language", languages[which]).apply()
-                popup?.dismiss()
+                readerOptionsPopup?.dismiss()
                 Toast.makeText(this, labels[which], Toast.LENGTH_SHORT).show()
             }
             .setNeutralButton(if (language) "OCR ক্যাশ মুছুন" else "Clear OCR cache") { _, _ ->
