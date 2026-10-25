@@ -1194,22 +1194,6 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(4), dp(4), dp(4), dp(4))
         }
-        val menuHeader = TextView(this).apply {
-            text = label("Reader options", "রিডার অপশন")
-            textSize = 17f
-            typeface = Typeface.DEFAULT_BOLD
-            gravity = Gravity.CENTER_VERTICAL
-            setTextColor(primaryTextColor)
-            setPadding(dp(12), dp(8), dp(12), dp(8))
-        }
-        content.addView(menuHeader, LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
-        ))
-        val menuHeaderDivider = View(this).apply { setBackgroundColor(dividerColor) }
-        content.addView(menuHeaderDivider, LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, dp(1)
-        ))
-
         fun addAction(title: String, action: () -> Unit, settingsAction: (() -> Unit)? = null) {
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
@@ -1254,20 +1238,10 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             ))
         }
 
-        addAction(label("Share PDF", "PDF শেয়ার করুন"), { shareCurrentBook() })
-        addAction(label("Print PDF", "PDF প্রিন্ট করুন"), { printCurrentBook() })
-        addAction(label("Settings", "সেটিংস"), {
-            startActivity(Intent(this@MainActivity, SettingsActivity::class.java))
-        })
-        addAction(label("Rotate screen", "স্ক্রিন ঘোরান"), { rotateReaderScreen() })
         addAction(label("Read aloud", "পড়ে শোনান"),
             { startDeviceDefaultReadAloud() }, { showSpeechSettings() })
         addAction(label("Read aloud (OCR)", "OCR দিয়ে পড়ে শোনান"),
             { startOcrReadAloud() }, { showOcrSettings() })
-        addAction(label("Download opened book…", "খোলা বই ডাউনলোড…"), {
-            val name = currentBook?.name ?: "book.pdf"
-            createPdfCopy.launch(if (name.endsWith(".pdf", true)) name else "$name.pdf")
-        })
         val pageJumpRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -1323,16 +1297,6 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         content.addView(pageJumpDivider, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, dp(1)
         ))
-        addAction(label("Set current page as cover", "বর্তমান পৃষ্ঠাটি কভার করুন"), { saveCurrentPageAsCover() })
-        addAction(label("Choose cover page…", "কভার পৃষ্ঠা বাছুন…"), { showCoverPageDialog() })
-        addAction(label("Back to library", "বইয়ের তালিকায় ফিরুন"), {
-            showLibrary()
-            if (pendingFolderScan) {
-                pendingFolderScan = false
-                refreshLibrary()
-            }
-        })
-
         val zoomRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -1410,6 +1374,26 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         content.addView(zoomRow, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
         ))
+        addAction(label("Back to library", "বইয়ের তালিকায় ফিরুন"), {
+            showLibrary()
+            if (pendingFolderScan) {
+                pendingFolderScan = false
+                refreshLibrary()
+            }
+        })
+        addAction(label("Share PDF", "PDF শেয়ার করুন"), { shareCurrentBook() })
+        addAction(label("Print PDF", "PDF প্রিন্ট করুন"), { printCurrentBook() })
+        addAction(label("Download opened book…", "খোলা বই ডাউনলোড…"), {
+            val name = currentBook?.name ?: "book.pdf"
+            createPdfCopy.launch(if (name.endsWith(".pdf", true)) name else "$name.pdf")
+        })
+        addAction(label("Set current page as cover", "বর্তমান পৃষ্ঠাটি কভার করুন"), { saveCurrentPageAsCover() })
+        addAction(label("Choose cover page…", "কভার পৃষ্ঠা বাছুন…"), { showCoverPageDialog() })
+        addAction(label("Rotate screen", "স্ক্রিন ঘোরান"), { rotateReaderScreen() })
+        addAction(label("Settings", "সেটিংস"), {
+            startActivity(Intent(this@MainActivity, SettingsActivity::class.java))
+        })
+
         val scroll = ScrollView(this).apply {
             isFillViewport = false
             setBackgroundColor(if (dark) Color.rgb(28, 35, 32) else Color.WHITE)
