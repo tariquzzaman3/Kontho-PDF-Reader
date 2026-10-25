@@ -1122,8 +1122,13 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         if (index !in pageImages.indices || generation != readerGeneration) return
         if (pageBitmaps[index]?.isRecycled == false || !queuedPageRenders.add(index)) return
         val dimensions = pageDimensions.getOrNull(index) ?: return
-        val width = minOf(1500, maxOf(850, (basePageWidthPx * zoomScale.coerceAtMost(1.5f)).roundToInt()))
-        val height = (width.toFloat() * dimensions.second / dimensions.first).roundToInt().coerceAtLeast(1)
+        val targetWidth = minOf(1500, maxOf(850, (basePageWidthPx * zoomScale.coerceAtMost(1.5f)).roundToInt()))
+        val scale = minOf(
+            targetWidth.toFloat() / dimensions.first,
+            2500f / dimensions.second
+        )
+        val width = (dimensions.first * scale).roundToInt().coerceAtLeast(1)
+        val height = (dimensions.second * scale).roundToInt().coerceAtLeast(1)
         val uri = currentBook?.uri ?: return
         if (index == currentPage) setBusy("Loading page ${index + 1}…")
 
@@ -1691,10 +1696,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 cacheFile.writeText(recognizedText, Charsets.UTF_8)
                 ocrTextCache[cacheKey] = recognizedText
                 mainHandler.post {
-                    if (generation != readerGeneration || currentBook?.uri != uri || showingLibrary) {
-                        clearBusy()
-                        return@post
-                    }
+                    if (generation != readerGeneration || currentBook?.uri != uri || showingLibrary) return@post
                     speakTextOnCurrentPage(recognizedText, requestedPage, "ocr")
                 }
             } catch (error: Exception) {
