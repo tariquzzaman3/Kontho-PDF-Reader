@@ -81,7 +81,6 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
     private var books: List<Book> = emptyList()
     private var currentBook: Book? = null
-    private var pdfUri: Uri? = null
     private var fileDescriptor: ParcelFileDescriptor? = null
     private var pdfRenderer: PdfRenderer? = null
     @Volatile private var currentPage = 0
@@ -93,7 +92,6 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private var narrationPaused = false
     private var narrationCurrentSegmentIndex = 0
     private var narrationSegments: List<String> = emptyList()
-    private var narrationTargetPage = 0
     private var narrationRunId = 0
     private var lastNarrationUtteranceId: String? = null
     private var lastNarrationMode = "device"
@@ -111,11 +109,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private lateinit var readerMenuButton: TextView
     private var readerOptionsPopup: PopupWindow? = null
     private lateinit var readerPlaybackPanel: LinearLayout
-    private lateinit var readerPlayButton: TextView
     private lateinit var readerPauseButton: TextView
-    private lateinit var readerStopButton: TextView
-    private lateinit var readerRestartButton: TextView
-    private lateinit var readerCloseButton: TextView
     private lateinit var progressPanel: LinearLayout
     private lateinit var progressLabel: TextView
     private lateinit var progressBar: ProgressBar
@@ -284,12 +278,10 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private fun showLibrary() {
         readerGeneration++
         mainHandler.removeCallbacks(hideReaderOverlaysRunnable)
-        tts?.stop()
-        isNarrating = false
+        stopReaderNarration()
         releaseReaderBitmaps()
         showingLibrary = true
         currentBook = null
-        pdfUri = null
         WindowCompat.setDecorFitsSystemWindows(window, false)
         window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_VISIBLE
 
@@ -649,7 +641,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
             val result = bitmap
             runOnUiThread {
-                if (result != null && showingLibrary && image.tag == book.uri.toString()) {
+                if (result != null && !isFinishing && !isDestroyed && showingLibrary && image.tag == book.uri.toString()) {
                     if (image.layoutParams.height == ViewGroup.LayoutParams.WRAP_CONTENT) {
                         val gridWidth = libraryGrid.width.takeIf { it > 0 } ?: (resources.displayMetrics.widthPixels - dp(32))
                         val columns = libraryGrid.columnCount.coerceAtLeast(1)
@@ -669,7 +661,6 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private fun openBook(book: Book) {
         showingLibrary = false
         currentBook = book
-        pdfUri = book.uri
         currentPage = 0
         pageCount = 0
         pageText = ""
@@ -677,9 +668,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         pageDimensions = emptyList()
         queuedPageRenders.clear()
         releaseReaderBitmaps()
-        tts?.stop()
-        isNarrating = false
-        val generation = ++readerGeneration
+        stopReaderNarration()        val generation = ++readerGeneration
         buildReaderScreen()
 
         worker.execute {
@@ -703,6 +692,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                     buildContinuousPages(generation)
                 }
             } catch (error: Exception) {
+                closeCurrentRenderer()
                 runOnUiThread {
                     if (generation == readerGeneration && currentBook?.uri == book.uri && !showingLibrary) {
                         Toast.makeText(this, "Could not open PDF: ${error.localizedMessage ?: "unknown error"}", Toast.LENGTH_LONG).show()
@@ -800,26 +790,20 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             elevation = dp(8).toFloat()
             visibility = View.GONE
         }
-        readerPlayButton = playbackButton("▶", "Legacy play control") {
-            if (narrationPaused) resumeReaderNarration()
-            else if (!isNarrating) {
-                if (lastNarrationMode == "ocr") startOcrReadAloud() else startDeviceDefaultReadAloud()
-            }
-        }.apply { visibility = View.GONE }
         readerPauseButton = playbackButton("▶", "Play or pause reading") {
             if (narrationPaused) resumeReaderNarration()
             else if (isNarrating) pauseReaderNarration()
             else if (lastNarrationMode == "ocr") startOcrReadAloud() else startDeviceDefaultReadAloud()
         }
-        readerStopButton = playbackButton("■", "Stop reading") {
+        playbackButton("■", "Stop reading") {
             stopReaderNarration()
             showReaderOverlays()
         }
-        readerRestartButton = playbackButton("↻", "Restart current page") {
+        playbackButton("↻", "Restart current page") {
             restartReaderNarration()
             showReaderOverlays()
         }
-        readerCloseButton = playbackButton("×", "Close playback controls") {
+        playbackButton("×", "Close playback controls") {
             stopReaderNarration()
             readerPlaybackPanel.visibility = View.GONE
             mainHandler.removeCallbacks(hideReaderOverlaysRunnable)
@@ -1143,10 +1127,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         if (index == currentPage) setBusy("Loading page ${index + 1}…")
 
         worker.execute {
-            if (generation != readerGeneration) {
-                mainHandler.post { queuedPageRenders.remove(index) }
-                return@execute
-            }
+            if (generation != readerGeneration) return@execute
             var bitmap: Bitmap? = null
             try {
                 val renderer = pdfRenderer ?: throw IOException("No PDF is open.")
@@ -1158,7 +1139,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 }
                 val result = bitmap
                 mainHandler.post {
-                    queuedPageRenders.remove(index)
+                    if (generation == readerGeneration && currentBook?.uri == uri) queuedPageRenders.remove(index)
                     if (result != null && generation == readerGeneration &&
                         currentBook?.uri == uri && index in pageImages.indices && !showingLibrary
                     ) {
@@ -1176,7 +1157,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             } catch (_: Exception) {
                 bitmap?.let { if (!it.isRecycled) it.recycle() }
                 mainHandler.post {
-                    queuedPageRenders.remove(index)
+                    if (generation == readerGeneration && currentBook?.uri == uri) queuedPageRenders.remove(index)
                     if (generation == readerGeneration && index == currentPage && !showingLibrary) {
                         clearBusy()
                         Toast.makeText(this, "Could not display page ${index + 1}.", Toast.LENGTH_SHORT).show()
@@ -1869,7 +1850,6 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
         lastNarrationMode = mode
         narrationSegments = segments
-        narrationTargetPage = pageIndex
         narrationCurrentSegmentIndex = 0
         narrationPaused = false
         isNarrating = true
@@ -2003,7 +1983,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                                 isNarrating = false
                                 narrationPaused = false
                                 lastNarrationUtteranceId = null
-                                if (::readerPauseButton.isInitialized) readerPauseButton.text = "Ⅱ"
+                                if (::readerPauseButton.isInitialized) readerPauseButton.text = "▶"
                                 showReaderOverlays()
                             }
                         }
