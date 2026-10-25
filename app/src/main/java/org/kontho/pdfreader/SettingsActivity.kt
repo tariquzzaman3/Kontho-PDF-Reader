@@ -56,9 +56,14 @@ class SettingsActivity : ComponentActivity() {
                     Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
                 )
             } catch (_: Exception) { }
-            prefs.edit().putString("book_folder_uri", uri.toString()).apply()
+            prefs.edit()
+                .putString("book_folder_uri", uri.toString())
+                .putBoolean("setup_done", true)
+                .apply()
+            finish()
+        } else {
+            renderSetupStep()
         }
-        renderSetupStep()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -550,20 +555,35 @@ class SettingsActivity : ComponentActivity() {
         addRow(label("About Kontho", "কণ্ঠ পরিচিতি"), label("Version 0.6.0 · Bangla PDF reader", "সংস্করণ ০.৬.০ · বাংলা PDF রিডার")) {
             AlertDialog.Builder(this)
                 .setTitle("কণ্ঠ · Kontho PDF Reader")
-                .setMessage(label("Version 0.6.0\\nRead PDFs, use Bengali/English OCR, and listen through Android text-to-speech.", "সংস্করণ ০.৬.০\\nPDF পড়ুন, বাংলা/ইংরেজি OCR ব্যবহার করুন এবং Android-এর কণ্ঠে শুনুন।"))
+                .setMessage(label("Version 0.6.0\nRead PDFs, use Bengali/English OCR, and listen through Android text-to-speech.", "সংস্করণ ০.৬.০\nPDF পড়ুন, বাংলা/ইংরেজি OCR ব্যবহার করুন এবং Android-এর কণ্ঠে শুনুন।"))
                 .setPositiveButton(label("OK", "ঠিক আছে"), null).show()
         }
 
-        addRow(label("Check for updates", "আপডেট দেখুন"), label("Open official GitHub releases", "অফিশিয়াল GitHub রিলিজ খুলুন")) {
-            try { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/tariquzzaman3/Kontho-PDF-Reader/releases"))) }
-            catch (_: Exception) { Toast.makeText(this, label("Could not open updates", "আপডেট খোলা যায়নি"), Toast.LENGTH_LONG).show() }
+        addRow(label("Check for updates", "আপডেট দেখুন"), label("Check the latest published GitHub release", "সর্বশেষ প্রকাশিত GitHub রিলিজ দেখুন")) {
+            checkForUpdates(manual = true)
         }
 
-        addRow(label("Automatic updates", "স্বয়ংক্রিয় আপডেট"), label("Managed by Google Play after installation from Play Store", "Play Store থেকে ইনস্টল করলে Google Play আপডেট পরিচালনা করবে")) {
+        val automaticChecks = prefs.getBoolean("auto_check_updates", true)
+        addRow(
+            label("Automatic update checks", "স্বয়ংক্রিয় আপডেট পরীক্ষা"),
+            if (automaticChecks) label("Enabled · checks once a day", "চালু · দিনে একবার পরীক্ষা") else label("Disabled", "বন্ধ")
+        ) {
             AlertDialog.Builder(this)
-                .setTitle(label("Automatic updates", "স্বয়ংক্রিয় আপডেট"))
-                .setMessage(label("Kontho does not silently install APKs. Google Play manages automatic updates for Play-installed apps. For GitHub builds, use Check for updates.", "কণ্ঠ নিজে থেকে APK ইনস্টল করে না। Play Store থেকে ইনস্টল করা অ্যাপের স্বয়ংক্রিয় আপডেট Google Play পরিচালনা করে। GitHub সংস্করণের জন্য আপডেট দেখুন।"))
-                .setPositiveButton(label("OK", "ঠিক আছে"), null).show()
+                .setTitle(label("Automatic update checks", "স্বয়ংক্রিয় আপডেট পরীক্ষা"))
+                .setSingleChoiceItems(
+                    arrayOf(label("Enabled", "চালু"), label("Disabled", "বন্ধ")),
+                    if (automaticChecks) 0 else 1
+                ) { dialog, which ->
+                    prefs.edit().putBoolean("auto_check_updates", which == 0).apply()
+                    dialog.dismiss()
+                    render()
+                }
+                .setMessage(label(
+                    "When enabled, Kontho checks GitHub once per day for a newer published release and notifies you. Updates are never silently installed; you approve opening and installing an update.",
+                    "চালু থাকলে কণ্ঠ প্রতিদিন GitHub-এ নতুন রিলিজ আছে কি না দেখে জানাবে। কোনো আপডেট গোপনে ইনস্টল হয় না; আপডেট খুলে ইনস্টল করার সিদ্ধান্ত আপনাকেই নিতে হবে।"
+                ))
+                .setNegativeButton(label("Cancel", "বাতিল"), null)
+                .show()
         }
 
         addRow(label("Privacy policy", "গোপনীয়তা নীতি"), label("How Kontho handles PDFs, OCR and voice data", "PDF, OCR ও ভয়েস ডেটা কীভাবে ব্যবহৃত হয়")) {
@@ -581,6 +601,52 @@ class SettingsActivity : ComponentActivity() {
         root.addView(done, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         setContentView(root)
         installSafeInsets(root, dp(24), dp(20), dp(24), dp(20))
+    }
+
+    private fun checkForUpdates(manual: Boolean) {
+        if (manual) {
+            Toast.makeText(this, label("Checking GitHub for updates…", "GitHub-এ আপডেট খোঁজা হচ্ছে…"), Toast.LENGTH_SHORT).show()
+        }
+        GithubReleaseChecker.check(this) { result ->
+            if (isFinishing || isDestroyed) return@check
+            if (result.updateAvailable) {
+                AlertDialog.Builder(this)
+                    .setTitle(label("Kontho update available", "কণ্ঠের আপডেট পাওয়া গেছে"))
+                    .setMessage(label(
+                        "Installed version: ${result.installedVersion}\nLatest version: ${result.latestVersion}\n\nOpen the official release page to review and download it.",
+                        "ইনস্টল করা সংস্করণ: ${result.installedVersion}\nসর্বশেষ সংস্করণ: ${result.latestVersion}\n\nপর্যালোচনা ও ডাউনলোড করতে অফিসিয়াল রিলিজ পৃষ্ঠা খুলুন।"
+                    ))
+                    .setPositiveButton(label("Open release", "রিলিজ খুলুন")) { _, _ -> openReleasePage(result.releaseUrl) }
+                    .setNegativeButton(label("Later", "পরে"), null)
+                    .show()
+            } else if (manual) {
+                val message = if (result.latestVersion == null) {
+                    label(
+                        "Could not find a published GitHub release yet. You can still open the releases page to check available downloads. Details: ${result.errorMessage ?: "unknown error"}",
+                        "এখনো প্রকাশিত GitHub রিলিজ পাওয়া যায়নি। ডাউনলোড দেখতে রিলিজ পৃষ্ঠা খুলুন। বিবরণ: ${result.errorMessage ?: "অজানা ত্রুটি"}"
+                    )
+                } else {
+                    label(
+                        "You are using version ${result.installedVersion}. The latest published GitHub release is ${result.latestVersion}.",
+                        "আপনি ${result.installedVersion} সংস্করণ ব্যবহার করছেন। GitHub-এ সর্বশেষ প্রকাশিত সংস্করণ ${result.latestVersion}।"
+                    )
+                }
+                AlertDialog.Builder(this)
+                    .setTitle(label("Update check", "আপডেট পরীক্ষা"))
+                    .setMessage(message)
+                    .setPositiveButton(label("Open releases", "রিলিজ খুলুন")) { _, _ -> openReleasePage(result.releaseUrl) }
+                    .setNegativeButton(label("Close", "বন্ধ"), null)
+                    .show()
+            }
+        }
+    }
+
+    private fun openReleasePage(url: String?) {
+        try {
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url ?: GithubReleaseChecker.RELEASES_URL)))
+        } catch (_: Exception) {
+            Toast.makeText(this, label("Could not open updates", "আপডেট খোলা যায়নি"), Toast.LENGTH_LONG).show()
+        }
     }
 
     private fun showPrivacyPolicy() {
