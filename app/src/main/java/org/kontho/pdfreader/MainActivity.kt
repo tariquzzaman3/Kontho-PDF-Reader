@@ -549,6 +549,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 val info = LinearLayout(this).apply {
                     orientation = LinearLayout.VERTICAL
                     addView(title, matchWrap())
+                }
                 card.addView(info, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
                 libraryGrid.addView(card, GridLayout.LayoutParams().apply {
                     width = ViewGroup.LayoutParams.MATCH_PARENT
@@ -558,7 +559,6 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 })
             } else {
                 card.addView(title, matchWrap())
-                card.addView(coverPageLabel, matchWrap())
                 val params = GridLayout.LayoutParams().apply {
                     width = 0
                     height = ViewGroup.LayoutParams.WRAP_CONTENT
@@ -567,11 +567,11 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 }
                 libraryGrid.addView(card, params)
             }
-            loadCoverThumbnail(book, cover, coverPageLabel)
+            loadCoverThumbnail(book, cover)
         }
     }
 
-    private fun loadCoverThumbnail(book: Book, image: ImageView, label: TextView) {
+    private fun loadCoverThumbnail(book: Book, image: ImageView) {
         thumbnailWorker.execute {
             var bitmap: Bitmap? = null
             try {
@@ -608,7 +608,6 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                         }
                     }
                     image.setImageBitmap(result)
-                    label.text = "Cover: page ${coverPageFor(book.uri) + 1}"
                 } else if (result != null) {
                     result.recycle()
                 }
