@@ -1425,7 +1425,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
     private fun openDeviceTtsSettings() {
         try {
-            startActivity(Intent(android.provider.Settings.ACTION_TTS_SETTINGS))
+            startActivity(Intent("com.android.settings.TTS_SETTINGS"))
         } catch (_: Exception) {
             try { startActivity(Intent(android.provider.Settings.ACTION_SETTINGS)) }
             catch (_: Exception) { toast("Open Android Settings and search for Text-to-speech output.") }
