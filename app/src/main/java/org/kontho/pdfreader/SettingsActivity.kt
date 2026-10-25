@@ -656,13 +656,13 @@ class SettingsActivity : ComponentActivity() {
 
 আপনার বেছে নেওয়া PDF ও অনুমতিপ্রাপ্ত ফোল্ডার ব্যবহার করা হয়। বইয়ের তালিকা, সেটিংস, কভার পৃষ্ঠা, OCR লেখা এবং OCR মডেল ডিভাইসের অ্যাপ-স্টোরেজে থাকে।
 
-অ্যাপে অ্যাকাউন্ট, বিজ্ঞাপন, অ্যানালিটিক্স বা নিজস্ব সার্ভারে PDF/OCR লেখা আপলোড করার ব্যবস্থা নেই। প্রথম OCR ব্যবহারে GitHub থেকে Tesseract মডেল ডাউনলোড হয়; GitHub IP ঠিকানার মতো সংযোগ-তথ্য লগ করতে পারে।
+অ্যাপে অ্যাকাউন্ট, বিজ্ঞাপন, অ্যানালিটিক্স বা নিজস্ব সার্ভারে PDF/OCR লেখা আপলোড করার ব্যবস্থা নেই। প্রথম OCR ব্যবহারে GitHub থেকে Tesseract মডেল ডাউনলোড হয়। স্বয়ংক্রিয় আপডেট পরীক্ষা চালু থাকলে দিনে সর্বোচ্চ একবার, অথবা সেটিংস থেকে হাতে পরীক্ষা করলে, GitHub-এর প্রকাশিত রিলিজের তথ্যও দেখা হয়। এই অনুরোধে আপনার PDF বা OCR লেখা পাঠানো হয় না; GitHub IP ঠিকানার মতো সংযোগ-তথ্য লগ করতে পারে।
 
 Read aloud Android-এর TTS ইঞ্জিন ব্যবহার করে। ইঞ্জিনের সেটিংস অনুযায়ী কণ্ঠ ডিভাইসে তৈরি হতে পারে অথবা ইঞ্জিন সরবরাহকারীর মাধ্যমে প্রক্রিয়াকৃত হতে পারে। OCR ক্যাশ OCR সেটিংস থেকে মুছতে পারেন। যোগাযোগ: GitHub repository issues.""" else """Kontho PDF Reader — Privacy Policy
 
 Kontho uses PDFs and folders you choose through Android's document picker. Book references, preferences, cover-page choices, OCR text cache and downloaded OCR models are kept in app storage.
 
-The app has no accounts, ads, analytics, or app-operated server that receives PDFs or recognized OCR text. On first OCR use it downloads public Tesseract language models from GitHub; GitHub may log ordinary connection metadata such as your IP address.
+The app has no accounts, ads, analytics, or app-operated server that receives PDFs or recognized OCR text. On first OCR use it downloads public Tesseract language models from GitHub. When automatic update checks are enabled, it also requests public GitHub release metadata at most once a day, or when you manually check in Settings. These requests never include your PDFs or OCR text; GitHub may log ordinary connection metadata such as your IP address.
 
 Read aloud uses the Android TTS engine. Depending on that engine and its settings, speech may be processed locally or by the engine provider. You can clear OCR cache in OCR settings. Contact: GitHub repository issues."""
         AlertDialog.Builder(this).setTitle(title).setMessage(message)
