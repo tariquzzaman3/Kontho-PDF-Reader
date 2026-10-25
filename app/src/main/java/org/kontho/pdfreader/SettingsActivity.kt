@@ -341,8 +341,15 @@ class SettingsActivity : ComponentActivity() {
             }
         }
 
+        val currentStepText = if (language) {
+            listOf("০", "১", "২", "৩", "৪")[setupStep + 1]
+        } else {
+            (setupStep + 1).toString()
+        }
+        val totalStepText = if (language) "৪" else "4"
         val progressText = TextView(this).apply {
-            text = label("Step ${setupStep + 1} of 4", "ধাপ ${setupStep + 1}/৪")
+            text = if (language) "ধাপ $currentStepText / $totalStepText"
+                else "Step $currentStepText of $totalStepText"
             textSize = 12f
             gravity = Gravity.CENTER
             setTextColor(muted)
@@ -355,54 +362,6 @@ class SettingsActivity : ComponentActivity() {
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
         ))
 
-        val footer = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        if (setupStep > 0) {
-            val back = Button(this).apply {
-                text = label("Back", "পেছনে")
-                isAllCaps = false
-                setOnClickListener {
-                    setupStep = (setupStep - 1).coerceAtLeast(0)
-                    renderSetupStep()
-                }
-            }
-            footer.addView(back, LinearLayout.LayoutParams(0, dp(48), 0.65f).apply {
-                marginEnd = dp(8)
-            })
-        }
-        if (setupStep == 3) {
-            val finish = Button(this).apply {
-                text = label("Finish setup", "সেটআপ শেষ করুন")
-                isAllCaps = false
-                setOnClickListener {
-                    prefs.edit().putBoolean("setup_done", true).apply()
-                    finish()
-                }
-            }
-            footer.addView(finish, LinearLayout.LayoutParams(0, dp(48), 1f))
-            if (prefs.getString("book_folder_uri", null).isNullOrBlank()) {
-                val skip = TextView(this).apply {
-                    text = label("Set up later", "পরে করব")
-                    gravity = Gravity.CENTER
-                    setTextColor(accent)
-                    setPadding(dp(4), dp(8), dp(4), dp(8))
-                    setOnClickListener {
-                        prefs.edit().putBoolean("setup_done", true).apply()
-                        finish()
-                    }
-                }
-                root.addView(skip, ViewGroup.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
-                ))
-            }
-        }
-        if (footer.childCount > 0) {
-            root.addView(footer, ViewGroup.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
-            ))
-        }
         setContentView(root)
         installSafeInsets(root, dp(20), dp(12), dp(20), dp(14))
     }
