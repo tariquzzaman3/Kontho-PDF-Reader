@@ -185,6 +185,35 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         }
     }
 
+    private fun maybeCheckForUpdatesAutomatically() {
+        if (!preferences.getBoolean("setup_done", false)) return
+        if (!preferences.getBoolean("auto_check_updates", true)) return
+        val now = System.currentTimeMillis()
+        val previousCheck = preferences.getLong("last_update_check_ms", 0L)
+        if (now - previousCheck < 24L * 60L * 60L * 1000L) return
+        preferences.edit().putLong("last_update_check_ms", now).apply()
+
+        GithubReleaseChecker.check(this) { result ->
+            if (isFinishing || isDestroyed) return@check
+            if (!preferences.getBoolean("auto_check_updates", true) || !result.updateAvailable) return@check
+            AlertDialog.Builder(this)
+                .setTitle("কণ্ঠ · Kontho PDF Reader update")
+                .setMessage(
+                    "A newer version (${result.latestVersion}) is available. " +
+                        "You have ${result.installedVersion}. Open the official release page to review it."
+                )
+                .setPositiveButton("View update") { _, _ ->
+                    try {
+                        startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(result.releaseUrl ?: GithubReleaseChecker.RELEASES_URL)))
+                    } catch (_: Exception) {
+                        toast("Could not open the update page.")
+                    }
+                }
+                .setNegativeButton("Later", null)
+                .show()
+        }
+    }
+
     private fun currentSettingsSnapshot(): String {
         val p = getSharedPreferences("kontho_library", MODE_PRIVATE)
         return listOf("app_theme", "app_language", "library_view", "grid_columns", "sort_field", "sort_descending", "book_folder_uri")
@@ -193,6 +222,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
     override fun onResume() {
         super.onResume()
+        maybeCheckForUpdatesAutomatically()
         val snapshot = currentSettingsSnapshot()
         val folderUri = preferences.getString(KEY_BOOK_FOLDER, null)
         val folderChanged = folderUri != lastBookFolderUri
