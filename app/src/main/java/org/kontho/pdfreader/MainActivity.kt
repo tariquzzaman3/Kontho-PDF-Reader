@@ -3,6 +3,9 @@ package org.kontho.pdfreader
 import androidx.activity.ComponentActivity
 import android.app.AlertDialog
 import android.content.Intent
+import android.content.pm.ActivityInfo
+import android.content.res.Configuration
+import android.content.res.ColorStateList
 import android.database.Cursor
 import android.graphics.Bitmap
 import android.graphics.Color
@@ -20,12 +23,15 @@ import android.speech.tts.UtteranceProgressListener
 import android.text.InputType
 import android.view.Gravity
 import android.view.MotionEvent
+import android.view.ScaleGestureDetector
 import android.view.ViewConfiguration
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
+import android.widget.HorizontalScrollView
+import android.widget.SeekBar
 import android.widget.PopupMenu
 import android.widget.GridLayout
 import android.widget.ImageView
@@ -40,8 +46,14 @@ import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.text.PDFTextStripper
+import com.googlecode.tesseract.android.TessBaseAPI
+import java.io.File
+import java.io.FileOutputStream
 import java.io.IOException
 import java.util.Locale
+import java.net.HttpURLConnection
+import java.net.URL
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import kotlin.math.roundToInt
 
@@ -63,24 +75,44 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private var tts: TextToSpeech? = null
     private var ttsReady = false
     private var isNarrating = false
+    private var narrationPaused = false
+    private var narrationCurrentSegmentIndex = 0
+    private var narrationSegments: List<String> = emptyList()
+    private var narrationTargetPage = 0
+    private var narrationRunId = 0
     private var lastNarrationUtteranceId: String? = null
+    private var lastNarrationMode = "device"
     private var showingLibrary = true
     private var settingsSnapshot = ""
+    private var lastBookFolderUri: String? = null
+    private var pendingFolderScan = false
     @Volatile private var readerGeneration = 0
 
     private lateinit var libraryGrid: GridLayout
     private lateinit var librarySwipe: SwipeRefreshLayout
     private lateinit var readerScroll: ScrollView
+    private lateinit var horizontalPageScroll: HorizontalScrollView
     private lateinit var pagesContainer: LinearLayout
     private lateinit var readerMenuButton: TextView
     private lateinit var readerPlaybackPanel: LinearLayout
     private lateinit var readerPlayButton: TextView
+    private lateinit var readerPauseButton: TextView
     private lateinit var readerStopButton: TextView
+    private lateinit var readerRestartButton: TextView
+    private lateinit var readerCloseButton: TextView
+    private lateinit var progressPanel: LinearLayout
+    private lateinit var progressLabel: TextView
+    private lateinit var progressBar: ProgressBar
     private val pageImages = mutableListOf<ImageView>()
     private var pageDimensions: List<Pair<Int, Int>> = emptyList()
     private val pageBitmaps = mutableMapOf<Int, Bitmap>()
     private val pageTextCache = mutableMapOf<Int, String>()
+    private val ocrTextCache = ConcurrentHashMap<String, String>()
     private val queuedPageRenders = mutableSetOf<Int>()
+    private var zoomScale = 1.0f
+    private var basePageWidthPx = 0
+    private var scaleGestureDetector: ScaleGestureDetector? = null
+    private var zoomGestureOccurred = false
     private val mainHandler = Handler(Looper.getMainLooper())
     private val hideReaderOverlaysRunnable = Runnable { hideReaderOverlays() }
     private var touchDownX = 0f
@@ -94,6 +126,12 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             rememberRecentBook(book)
             openBook(book)
         }
+    }
+
+    private val createPdfCopy = registerForActivityResult(
+        ActivityResultContracts.CreateDocument("application/pdf")
+    ) { destination ->
+        if (destination != null) copyCurrentBookTo(destination)
     }
 
     private val chooseBookFolder = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
@@ -125,6 +163,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         window.navigationBarColor = window.statusBarColor
         PDFBoxResourceLoader.init(applicationContext)
         tts = TextToSpeech(this, this)
+        lastBookFolderUri = preferences.getString(KEY_BOOK_FOLDER, null)
         showLibrary()
         refreshLibrary()
         settingsSnapshot = currentSettingsSnapshot()
@@ -142,26 +181,57 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     override fun onResume() {
         super.onResume()
         val snapshot = currentSettingsSnapshot()
+        val folderUri = preferences.getString(KEY_BOOK_FOLDER, null)
+        val folderChanged = folderUri != lastBookFolderUri
         if (settingsSnapshot.isNotEmpty() && snapshot != settingsSnapshot) {
             settingsSnapshot = snapshot
+            lastBookFolderUri = folderUri
+            if (folderChanged) pendingFolderScan = !folderUri.isNullOrBlank()
             if (showingLibrary) {
                 val cachedBooks = books
-                val needsInitialFolderScan = cachedBooks.isEmpty() &&
-                    !preferences.getString(KEY_BOOK_FOLDER, null).isNullOrBlank()
                 showLibrary()
                 books = cachedBooks
                 renderBookGrid()
-                // On first launch, the folder is chosen in the setup wizard
-                // after the initial empty library is created. Scan it once now.
-                if (needsInitialFolderScan) refreshLibrary()
-            } else {
-                recreate()
+                if (folderChanged && !folderUri.isNullOrBlank()) {
+                    pendingFolderScan = false
+                    refreshLibrary()
+                }
+            } else if (currentBook != null && pageDimensions.isNotEmpty()) {
+                val selectedPage = currentPage
+                val generation = ++readerGeneration
+                buildReaderScreen()
+                buildContinuousPages(generation, selectedPage)
             }
             return
         }
         if (snapshot.isNotEmpty()) settingsSnapshot = snapshot
-        // Do not rescan whenever the activity resumes. Pull down to refresh.
+        lastBookFolderUri = folderUri
+        // Do not scan on return or on rotation; pull down to refresh explicitly.
         if (::libraryGrid.isInitialized && showingLibrary) renderBookGrid()
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        window.statusBarColor = if (preferences.getString("app_theme", "system") == "dark") {
+            Color.rgb(20, 28, 26)
+        } else {
+            Color.rgb(18, 76, 66)
+        }
+        window.navigationBarColor = window.statusBarColor
+        if (showingLibrary) {
+            val cachedBooks = books
+            showLibrary()
+            books = cachedBooks
+            renderBookGrid()
+            // Reflow the views after rotation without rescanning the PDF folder.
+        } else if (currentBook != null && pageDimensions.isNotEmpty()) {
+            val selectedPage = currentPage
+            val generation = ++readerGeneration
+            buildReaderScreen()
+            buildContinuousPages(generation, selectedPage)
+        }
+        settingsSnapshot = currentSettingsSnapshot()
+        lastBookFolderUri = preferences.getString(KEY_BOOK_FOLDER, null)
     }
 
     private fun showLibrary() {
@@ -266,13 +336,19 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         }
         librarySwipe = SwipeRefreshLayout(this).apply {
             setColorSchemeColors(Color.rgb(18, 104, 84))
-            setOnRefreshListener { refreshLibrary() }
+            setOnRefreshListener {
+                isRefreshing = false
+                refreshLibrary()
+            }
             addView(listScroll, ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT
             ))
         }
         root.addView(librarySwipe, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f
+        ))
+        root.addView(createProgressPanel(dark), LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
         ))
 
         setContentView(root)
@@ -318,7 +394,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
     private fun refreshLibrary() {
         if (!::libraryGrid.isInitialized || !showingLibrary) return
-        if (::librarySwipe.isInitialized) librarySwipe.isRefreshing = true
+        if (::librarySwipe.isInitialized) librarySwipe.isRefreshing = false
+        setBusy(if (preferences.getString(KEY_BOOK_FOLDER, null).isNullOrBlank()) "Finding recent books…" else "Scanning PDF folder…")
         worker.execute {
             val found = LinkedHashMap<String, Book>()
             val recentUris = preferences.getStringSet(KEY_RECENT_BOOKS, emptySet())?.toList().orEmpty()
@@ -334,6 +411,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
             val folderValue = preferences.getString(KEY_BOOK_FOLDER, null)
             if (!folderValue.isNullOrBlank()) {
+                setBusy("Finding books in selected folder…")
                 try {
                     val folder = DocumentFile.fromTreeUri(this, Uri.parse(folderValue))
                     if (folder != null && folder.canRead()) collectPdfBooks(folder, found, 0)
@@ -357,6 +435,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 books = sorted
                 renderBookGrid()
                 if (::librarySwipe.isInitialized) librarySwipe.isRefreshing = false
+                clearBusy()
             }
         }
     }
@@ -1083,7 +1162,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     override fun onInit(statusCode: Int) {
         ttsReady = statusCode == TextToSpeech.SUCCESS
         if (ttsReady) {
-            tts?.setSpeechRate(preferences.getFloat("narration_rate", 0.85f).coerceIn(0.65f, 1.15f))
+            tts?.setSpeechRate(preferences.getFloat("narration_rate", 0.85f).coerceIn(0.5f, 1.5f))
+            tts?.setPitch(preferences.getFloat("narration_pitch", 1.0f).coerceIn(0.5f, 1.5f))
             tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                 override fun onStart(utteranceId: String?) {
                     // Do not restart the two-second overlay timer for every
