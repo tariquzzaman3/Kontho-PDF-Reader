@@ -1938,7 +1938,15 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
-        if (!showingLibrary) showLibrary() else super.onBackPressed()
+        if (!showingLibrary) {
+            showLibrary()
+            if (pendingFolderScan) {
+                pendingFolderScan = false
+                refreshLibrary()
+            }
+        } else {
+            super.onBackPressed()
+        }
     }
 
     private fun String.removeSuffixIgnoreCase(suffix: String): String {
