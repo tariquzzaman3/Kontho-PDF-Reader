@@ -906,11 +906,10 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         progressAnimator = null
         progressPanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(10), dp(6), dp(10), dp(7))
+            setPadding(dp(8), dp(6), dp(8), dp(6))
             background = GradientDrawable().apply {
                 cornerRadius = dp(8).toFloat()
                 setColor(if (dark) Color.rgb(20, 28, 26) else Color.WHITE)
-                setStroke(dp(1), if (dark) Color.rgb(76, 100, 88) else Color.rgb(198, 216, 204))
             }
             visibility = View.GONE
         }
@@ -932,6 +931,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             max = 100
             progress = 0
             isIndeterminate = false
+            background = null
+            setPadding(0, 0, 0, 0)
             progressDrawable = LayerDrawable(arrayOf(
                 track,
                 ClipDrawable(fill, Gravity.START, ClipDrawable.HORIZONTAL)
@@ -1228,9 +1229,14 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(4), dp(4), dp(4), dp(4))
+            setPadding(dp(4), dp(4), dp(4), 0)
         }
-        fun addAction(title: String, action: () -> Unit, settingsAction: (() -> Unit)? = null) {
+        fun addAction(
+            title: String,
+            action: () -> Unit,
+            settingsAction: (() -> Unit)? = null,
+            dividerAfter: Boolean = true
+        ) {
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
@@ -1268,10 +1274,12 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             content.addView(row, LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
             ))
-            val divider = View(this).apply { setBackgroundColor(dividerColor) }
-            content.addView(divider, LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(1)
-            ))
+            if (dividerAfter) {
+                val divider = View(this).apply { setBackgroundColor(dividerColor) }
+                content.addView(divider, LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, dp(1)
+                ))
+            }
         }
 
         addAction(label("Read aloud", "পড়ে শোনান"),
@@ -1424,6 +1432,11 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         content.addView(zoomRow, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
         ))
+        val zoomShareDivider = View(this).apply { setBackgroundColor(dividerColor) }
+        content.addView(zoomShareDivider, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, dp(1)
+        ))
+        addAction(label("Rotate screen", "স্ক্রিন ঘোরান"), { rotateReaderScreen() })
         addAction(label("Share PDF", "PDF শেয়ার করুন"), { shareCurrentBook() })
         addAction(label("Print PDF", "PDF প্রিন্ট করুন"), { printCurrentBook() })
         addAction(label("Download opened book…", "খোলা বই ডাউনলোড…"), {
@@ -1432,10 +1445,9 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         })
         addAction(label("Set current page as cover", "বর্তমান পৃষ্ঠাটি কভার করুন"), { saveCurrentPageAsCover() })
         addAction(label("Choose cover page…", "কভার পৃষ্ঠা বাছুন…"), { showCoverPageDialog() })
-        addAction(label("Rotate screen", "স্ক্রিন ঘোরান"), { rotateReaderScreen() })
         addAction(label("Settings", "সেটিংস"), {
             startActivity(Intent(this@MainActivity, SettingsActivity::class.java))
-        })
+        }, dividerAfter = false)
 
         val scroll = ScrollView(this).apply {
             isFillViewport = false
@@ -1445,7 +1457,12 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             ))
         }
         val popupWidth = minOf(dp(360), resources.displayMetrics.widthPixels - dp(24)).coerceAtLeast(dp(240))
-        val popupHeight = minOf(dp(620), resources.displayMetrics.heightPixels - dp(100)).coerceAtLeast(dp(280))
+        content.measure(
+            View.MeasureSpec.makeMeasureSpec((popupWidth - dp(8)).coerceAtLeast(dp(1)), View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+        )
+        val availableHeight = (resources.displayMetrics.heightPixels - dp(100)).coerceAtLeast(dp(280))
+        val popupHeight = minOf(content.measuredHeight + dp(8), dp(620), availableHeight).coerceAtLeast(dp(280))
         val menuPopup = PopupWindow(scroll, popupWidth, popupHeight, true).apply {
             setBackgroundDrawable(GradientDrawable().apply {
                 cornerRadius = dp(14).toFloat()
