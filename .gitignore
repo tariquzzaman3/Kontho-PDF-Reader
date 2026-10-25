@@ -10,3 +10,7 @@ local.properties
 captures/
 .externalNativeBuild/
 .cxx/
+
+# Never commit Android upload keystores or secrets
+*.jks
+*.keystore

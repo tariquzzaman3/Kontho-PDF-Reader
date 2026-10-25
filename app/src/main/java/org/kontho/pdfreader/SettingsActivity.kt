@@ -15,6 +15,11 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
+import android.net.Uri
 
 class SettingsActivity : ComponentActivity() {
     private val prefs by lazy { getSharedPreferences("kontho_library", MODE_PRIVATE) }
@@ -66,6 +71,8 @@ class SettingsActivity : ComponentActivity() {
         }
         setTheme(if (dark) android.R.style.Theme_Material_NoActionBar else android.R.style.Theme_Material_Light_NoActionBar)
         super.onCreate(savedInstanceState)
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        WindowInsetsControllerCompat(window, window.decorView).isAppearanceLightStatusBars = !dark
         if (firstRun && !prefs.getBoolean("setup_done", false)) {
             renderSetupStep()
         } else {
@@ -398,6 +405,16 @@ class SettingsActivity : ComponentActivity() {
             ))
         }
         setContentView(root)
+        installSafeInsets(root, dp(20), dp(12), dp(20), dp(14))
+    }
+
+    private fun installSafeInsets(root: View, left: Int, top: Int, right: Int, bottom: Int) {
+        ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
+            val safe = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
+            view.setPadding(left + safe.left, top + safe.top, right + safe.right, bottom + safe.bottom)
+            insets
+        }
+        ViewCompat.requestApplyInsets(root)
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
@@ -413,9 +430,11 @@ class SettingsActivity : ComponentActivity() {
         }
         window.statusBarColor = if (dark) Color.rgb(20, 28, 26) else Color.rgb(18, 76, 66)
         window.navigationBarColor = window.statusBarColor
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        WindowInsetsControllerCompat(window, window.decorView).isAppearanceLightStatusBars = !dark
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(24, 20, 24, 20)
+            setPadding(dp(24), dp(20), dp(24), dp(20))
             setBackgroundColor(if (dark) Color.rgb(25, 31, 29) else Color.rgb(248, 250, 249))
         }
         val title = TextView(this).apply {
@@ -528,6 +547,10 @@ class SettingsActivity : ComponentActivity() {
                 .setPositiveButton(label("OK", "ঠিক আছে"), null).show()
         }
 
+        addRow(label("Privacy policy", "গোপনীয়তা নীতি"), label("How Kontho handles PDFs, OCR and voice data", "PDF, OCR ও ভয়েস ডেটা কীভাবে ব্যবহৃত হয়")) {
+            showPrivacyPolicy()
+        }
+
         root.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         val done = Button(this).apply {
             text = label("Done", "সম্পন্ন")
@@ -538,5 +561,30 @@ class SettingsActivity : ComponentActivity() {
         }
         root.addView(done, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         setContentView(root)
+        installSafeInsets(root, dp(24), dp(20), dp(24), dp(20))
+    }
+
+    private fun showPrivacyPolicy() {
+        val bn = prefs.getString("app_language", "en") == "bn"
+        val title = if (bn) "গোপনীয়তা নীতি" else "Privacy policy"
+        val message = if (bn) """কণ্ঠ PDF Reader — গোপনীয়তা নীতি
+
+আপনার বেছে নেওয়া PDF ও অনুমতিপ্রাপ্ত ফোল্ডার ব্যবহার করা হয়। বইয়ের তালিকা, সেটিংস, কভার পৃষ্ঠা, OCR লেখা এবং OCR মডেল ডিভাইসের অ্যাপ-স্টোরেজে থাকে।
+
+অ্যাপে অ্যাকাউন্ট, বিজ্ঞাপন, অ্যানালিটিক্স বা নিজস্ব সার্ভারে PDF/OCR লেখা আপলোড করার ব্যবস্থা নেই। প্রথম OCR ব্যবহারে GitHub থেকে Tesseract মডেল ডাউনলোড হয়; GitHub IP ঠিকানার মতো সংযোগ-তথ্য লগ করতে পারে।
+
+Read aloud Android-এর TTS ইঞ্জিন ব্যবহার করে। ইঞ্জিনের সেটিংস অনুযায়ী কণ্ঠ ডিভাইসে তৈরি হতে পারে অথবা ইঞ্জিন সরবরাহকারীর মাধ্যমে প্রক্রিয়াকৃত হতে পারে। OCR ক্যাশ OCR সেটিংস থেকে মুছতে পারেন। যোগাযোগ: GitHub repository issues.""" else """Kontho PDF Reader — Privacy Policy
+
+Kontho uses PDFs and folders you choose through Android's document picker. Book references, preferences, cover-page choices, OCR text cache and downloaded OCR models are kept in app storage.
+
+The app has no accounts, ads, analytics, or app-operated server that receives PDFs or recognized OCR text. On first OCR use it downloads public Tesseract language models from GitHub; GitHub may log ordinary connection metadata such as your IP address.
+
+Read aloud uses the Android TTS engine. Depending on that engine and its settings, speech may be processed locally or by the engine provider. You can clear OCR cache in OCR settings. Contact: GitHub repository issues."""
+        AlertDialog.Builder(this).setTitle(title).setMessage(message)
+            .setPositiveButton(if (bn) "অনলাইনে সম্পূর্ণ নীতি খুলুন" else "Open full policy online") { _, _ ->
+                try { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/tariquzzaman3/Kontho-PDF-Reader/blob/main/docs/privacy-policy.md"))) }
+                catch (_: Exception) { Toast.makeText(this, if (bn) "নীতির লিংক খোলা যায়নি" else "Could not open policy link", Toast.LENGTH_LONG).show() }
+            }
+            .setNegativeButton(if (bn) "বন্ধ" else "Close", null).show()
     }
 }

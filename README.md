@@ -18,10 +18,10 @@ The Settings gear keeps these preferences available afterward, plus grid-column 
 - Choose list or grid, with grid size configured in Settings.
 - Pull down to rescan the chosen folder. Sorting is maintained, and returning to the app or rotating the device does not rescan the folder.
 - Book thumbnails can use a page chosen from the PDF. Long-press a book to open, rename, or delete it where Android's document provider allows those actions.
-- Open a book in immersive full-screen mode. All PDF pages flow vertically in one continuous scroll.
+- Open a book in immersive reading mode. The device status bar stays visible for the clock and battery; navigation controls hide while reading. All PDF pages flow vertically in one continuous scroll.
 - Two-finger pinch zoom applies to every page together. The zoom controls are available in the reader menu; zooming does not affect the library.
 - The top-right glass-style three-dot menu and bottom-center playback controls fade after two seconds. Scrolling does not reveal these controls.
-- Reader menu actions include orientation rotation, device-default read aloud, OCR read aloud and settings, saving a copy of the open PDF, page navigation, and cover selection.
+- Reader menu actions include orientation rotation, Read aloud with voice speed/pitch and a shortcut to Android TTS settings, OCR read aloud and language settings, saving a copy of the open PDF, inline page navigation, and cover selection.
 - Playback controls include play, pause/resume, stop, restart, and close.
 - A small green progress bar displays brief status messages when scanning books, rendering pages, preparing speech, downloading OCR models, scanning OCR, or saving a copy.
 
@@ -35,7 +35,7 @@ OCR is processed one page at a time to limit memory use, and recognized text is 
 
 Read aloud uses the Android Text-to-Speech engine and device-default locale. The voice, Bangla support, and quality depend on the engine installed on the phone. Rate and pitch can be adjusted from the voice settings. Paragraph pauses are inserted between short TTS segments. Pause/resume restarts the current paragraph because Android's TTS API does not provide a consistent universal pause operation.
 
-A custom expressive AI voice still requires a separately selected, legally usable model and recordings for which the user has permission. Custom voice training and emotional acting are not included in this build.
+Bengali OCR narration requests a Bengali TTS voice when configured. If the phone has no compatible Bengali voice installed, Kontho falls back to the device default and explains how to install a voice in Android TTS settings. A custom expressive AI voice still requires a separately selected, legally usable model and recordings for which the user has permission. Custom voice training and emotional acting are not included in this build.
 
 ## Limitations
 
@@ -46,12 +46,17 @@ A custom expressive AI voice still requires a separately selected, legally usabl
 
 ## Build
 
-Uses JDK 17, Gradle 8.9, Android Gradle Plugin 8.7.3, Kotlin 2.0.21, Android SDK platform 35 and Tesseract4Android 4.9.0.
+Uses JDK 17, Gradle 8.13, Android Gradle Plugin 8.13.2, Kotlin 2.0.21, Android SDK platform 36 and Tesseract4Android 4.9.0.
 
 ```bash
-gradle --no-daemon assembleDebug
+gradle --no-daemon clean assembleDebug bundleRelease
 ```
 
 Debug APK: `app/build/outputs/apk/debug/app-debug.apk`.
+Release Android App Bundle: `app/build/outputs/bundle/release/app-release.aab`.
 
-GitHub Actions builds the debug APK and uploads `kontho-pdf-reader-debug` when the build passes.
+GitHub Actions builds both artifacts. Configure the four `ANDROID_UPLOAD_*` GitHub Actions secrets listed in `docs/GOOGLE_PLAY_RELEASE_CHECKLIST.md` to sign the release bundle in CI; without them, the AAB is unsigned and must not be uploaded to Play.
+
+## Google Play preparation
+
+See [the release checklist](docs/GOOGLE_PLAY_RELEASE_CHECKLIST.md) and [the privacy policy](docs/privacy-policy.md). The store listing, data-safety declarations, app signing enrollment, and final submission still need to be completed in Play Console.

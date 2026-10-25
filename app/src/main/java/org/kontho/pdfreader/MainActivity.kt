@@ -42,6 +42,10 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.documentfile.provider.DocumentFile
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
@@ -244,6 +248,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         showingLibrary = true
         currentBook = null
         pdfUri = null
+        WindowCompat.setDecorFitsSystemWindows(window, false)
         window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_VISIBLE
 
         val prefs = preferences
@@ -257,6 +262,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         fun label(en: String, bn: String) = if (appLanguage) bn else en
         window.statusBarColor = if (dark) Color.rgb(20, 28, 26) else Color.rgb(18, 76, 66)
         window.navigationBarColor = window.statusBarColor
+        WindowInsetsControllerCompat(window, window.decorView).isAppearanceLightStatusBars = !dark
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -353,8 +359,18 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         ))
 
         setContentView(root)
+        installContentInsets(root, dp(16), dp(8), dp(16), dp(8))
         renderBookGrid()
         worker.execute { closeCurrentRenderer() }
+    }
+
+    private fun installContentInsets(root: View, left: Int, top: Int, right: Int, bottom: Int) {
+        ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
+            val safe = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
+            view.setPadding(left + safe.left, top + safe.top, right + safe.right, bottom + safe.bottom)
+            insets
+        }
+        ViewCompat.requestApplyInsets(root)
     }
 
     private fun showSortMenu(anchor: View) {
@@ -508,17 +524,17 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 contentDescription = "Open ${book.name}. Long press for more actions."
             }
 
+            val listMode = getSharedPreferences("kontho_library", MODE_PRIVATE).getString("library_view", "grid") == "list"
             val cover = ImageView(this).apply {
                 tag = book.uri.toString()
                 setBackgroundColor(Color.rgb(238, 242, 240))
                 setImageResource(android.R.drawable.ic_menu_gallery)
                 scaleType = ImageView.ScaleType.FIT_CENTER
-                adjustViewBounds = false
+                adjustViewBounds = !listMode
                 contentDescription = "Cover of ${book.name}"
             }
-            val listMode = getSharedPreferences("kontho_library", MODE_PRIVATE).getString("library_view", "grid") == "list"
             card.addView(cover, if (listMode) LinearLayout.LayoutParams(dp(64), dp(88)).apply { marginEnd = dp(10) }
-                else LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(172)))
+                else LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
 
             val title = TextView(this).apply {
                 text = book.name.removeSuffixIgnoreCase(".pdf")
@@ -572,9 +588,10 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                         if (renderer.pageCount > 0) {
                             val requestedPage = coverPageFor(book.uri).coerceIn(0, renderer.pageCount - 1)
                             renderer.openPage(requestedPage).use { page ->
-                                val width = 360
-                                val height = (width.toFloat() * page.height / page.width)
-                                    .toInt().coerceAtLeast(1).coerceAtMost(520)
+                                // Bound thumbnail memory while preserving the PDF page's actual ratio.
+                                val scale = minOf(360f / page.width, 520f / page.height)
+                                val width = (page.width * scale).roundToInt().coerceAtLeast(1)
+                                val height = (page.height * scale).roundToInt().coerceAtLeast(1)
                                 val thumbnail = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
                                 bitmap = thumbnail
                                 thumbnail.eraseColor(Color.WHITE)
@@ -590,6 +607,14 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             val result = bitmap
             runOnUiThread {
                 if (result != null && showingLibrary && image.tag == book.uri.toString()) {
+                    if (image.layoutParams.height == ViewGroup.LayoutParams.WRAP_CONTENT) {
+                        val gridWidth = libraryGrid.width.takeIf { it > 0 } ?: (resources.displayMetrics.widthPixels - dp(32))
+                        val columns = libraryGrid.columnCount.coerceAtLeast(1)
+                        val coverWidth = image.width.takeIf { it > 0 } ?: (gridWidth / columns - dp(24)).coerceAtLeast(dp(48))
+                        image.layoutParams = image.layoutParams.apply {
+                            height = (coverWidth.toFloat() * result.height / result.width).roundToInt().coerceAtLeast(dp(72))
+                        }
+                    }
                     image.setImageBitmap(result)
                     label.text = "Cover: page ${coverPageFor(book.uri) + 1}"
                 } else if (result != null) {
@@ -651,14 +676,14 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             "light" -> false
             else -> (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
         }
+        WindowCompat.setDecorFitsSystemWindows(window, false)
         window.decorView.systemUiVisibility = (
-            View.SYSTEM_UI_FLAG_FULLSCREEN or
             View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
             View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or
-            View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
             View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or
             View.SYSTEM_UI_FLAG_LAYOUT_STABLE
         )
+        WindowInsetsControllerCompat(window, window.decorView).isAppearanceLightStatusBars = !dark
 
         val root = object : FrameLayout(this) {
             override fun dispatchTouchEvent(event: MotionEvent): Boolean {
@@ -818,6 +843,12 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         }
 
         setContentView(root)
+        ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
+            val safe = insets.getInsets(WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.displayCutout())
+            view.setPadding(safe.left, safe.top, safe.right, 0)
+            insets
+        }
+        ViewCompat.requestApplyInsets(root)
         showReaderOverlays()
     }
 
@@ -1372,6 +1403,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         val dialog = AlertDialog.Builder(this)
             .setTitle(if (language) "ডিভাইসের ভয়েস সেটিংস" else "Device voice settings")
             .setView(root)
+            .setNeutralButton(if (language) "ডিভাইসের TTS সেটিংস" else "Device TTS settings") { _, _ -> openDeviceTtsSettings() }
             .setNegativeButton(if (language) "বাতিল" else "Cancel", null)
             .setPositiveButton(if (language) "সংরক্ষণ" else "Save", null)
             .create()
@@ -1389,6 +1421,15 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             }
         }
         dialog.show()
+    }
+
+    private fun openDeviceTtsSettings() {
+        try {
+            startActivity(Intent(android.provider.Settings.ACTION_TTS_SETTINGS))
+        } catch (_: Exception) {
+            try { startActivity(Intent(android.provider.Settings.ACTION_SETTINGS)) }
+            catch (_: Exception) { toast("Open Android Settings and search for Text-to-speech output.") }
+        }
     }
 
     private fun showOcrSettings() {
@@ -1680,11 +1721,26 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         }
         val speech = tts ?: return
         val defaultLocale = Locale.getDefault()
-        val localeResult = speech.setLanguage(defaultLocale)
+        val preferredLocale = if (mode == "ocr") {
+            when (preferences.getString("ocr_language", "ben") ?: "ben") {
+                "ben" -> Locale("bn", "BD")
+                "eng" -> Locale.ENGLISH
+                else -> defaultLocale
+            }
+        } else defaultLocale
+        var localeResult = speech.setLanguage(preferredLocale)
+        var usingDefaultVoice = false
+        if (localeResult < TextToSpeech.LANG_AVAILABLE && preferredLocale != defaultLocale) {
+            localeResult = speech.setLanguage(defaultLocale)
+            usingDefaultVoice = localeResult >= TextToSpeech.LANG_AVAILABLE
+        }
         if (localeResult < TextToSpeech.LANG_AVAILABLE) {
             clearBusy()
-            toast("The device-default speech voice is not available. Check Android text-to-speech settings.")
+            toast("The selected speech voice is not available. Open Android text-to-speech settings to install a voice.")
             return
+        }
+        if (usingDefaultVoice && mode == "ocr" && preferredLocale.language == "bn") {
+            toast("A Bangla voice is not installed; using the device default voice. Install one in Android TTS settings when available.")
         }
         speech.setSpeechRate(preferences.getFloat("narration_rate", 0.85f).coerceIn(0.5f, 1.5f))
         speech.setPitch(preferences.getFloat("narration_pitch", 1.0f).coerceIn(0.5f, 1.5f))

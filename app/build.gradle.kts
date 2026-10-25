@@ -3,16 +3,26 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+val uploadKeyStorePath = System.getenv("ANDROID_UPLOAD_KEYSTORE_PATH")
+val uploadStorePassword = System.getenv("ANDROID_UPLOAD_STORE_PASSWORD")
+val uploadKeyAlias = System.getenv("ANDROID_UPLOAD_KEY_ALIAS")
+val uploadKeyPassword = System.getenv("ANDROID_UPLOAD_KEY_PASSWORD")
+val releaseSigningReady = !uploadKeyStorePath.isNullOrBlank() &&
+    java.io.File(uploadKeyStorePath).isFile &&
+    !uploadStorePassword.isNullOrBlank() &&
+    !uploadKeyAlias.isNullOrBlank() &&
+    !uploadKeyPassword.isNullOrBlank()
+
 android {
     namespace = "org.kontho.pdfreader"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "org.kontho.pdfreader"
         minSdk = 23
-        targetSdk = 28
-        versionCode = 5
-        versionName = "0.5.0"
+        targetSdk = 36
+        versionCode = 6
+        versionName = "0.6.0"
     }
 
     compileOptions {
@@ -24,9 +34,23 @@ android {
         jvmTarget = "17"
     }
 
+    signingConfigs {
+        create("release") {
+            if (releaseSigningReady) {
+                storeFile = file(checkNotNull(uploadKeyStorePath))
+                storePassword = checkNotNull(uploadStorePassword)
+                keyAlias = checkNotNull(uploadKeyAlias)
+                keyPassword = checkNotNull(uploadKeyPassword)
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
+            if (releaseSigningReady) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
 }
