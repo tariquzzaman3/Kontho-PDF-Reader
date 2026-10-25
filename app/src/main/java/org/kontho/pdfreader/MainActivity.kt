@@ -275,7 +275,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             gravity = Gravity.CENTER_VERTICAL
         }
         val title = TextView(this).apply {
-            text = "Kontho PDF Reader"
+            text = "কণ্ঠ · Kontho PDF Reader"
             textSize = 22f
             setTextColor(if (dark) Color.rgb(175, 225, 210) else Color.rgb(18, 76, 66))
             gravity = Gravity.CENTER_VERTICAL
@@ -758,10 +758,10 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 showReaderOverlays()
             }
         }
-        readerPauseButton = playbackButton("Ⅱ", "Pause or resume reading") {
+        readerPauseButton = playbackButton("▶", "Play or pause reading") {
             if (narrationPaused) resumeReaderNarration()
             else if (isNarrating) pauseReaderNarration()
-            else showReaderOverlays()
+            else if (lastNarrationMode == "ocr") startOcrReadAloud() else startDeviceDefaultReadAloud()
         }
         readerStopButton = playbackButton("■", "Stop reading") {
             stopReaderNarration()
