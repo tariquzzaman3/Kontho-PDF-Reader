@@ -1696,7 +1696,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         val generation = readerGeneration
         val uri = currentBook?.uri ?: return
         val language = preferences.getString("ocr_language", "ben") ?: "ben"
-        val cacheKey = "${uri}#${requestedPage + 1}#${language}"
+        val cacheKey = "ocr-v2::${uri}#${requestedPage + 1}#${language}"
         val inMemory = ocrTextCache[cacheKey]
         if (inMemory != null) {
             speakTextOnCurrentPage(inMemory, requestedPage, "ocr")
@@ -1732,18 +1732,22 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     }
 
     private fun ocrCacheFile(uri: Uri, pageIndex: Int, language: String): File =
-        File(File(cacheDir, "ocr"), "${uri.toString().hashCode()}_page_${pageIndex + 1}_${language.replace('+', '_')}.txt")
+        File(File(cacheDir, "ocr"), "ocr_v2_${uri.toString().hashCode()}_page_${pageIndex + 1}_${language.replace('+', '_')}.txt")
 
     /**
      * Bengali/English OCR models download once on first OCR use. The page scan
      * itself runs locally with Tesseract and is cached for subsequent reading.
      */
     private fun recognizePdfPage(uri: Uri, pageIndex: Int, language: String): String {
-        ensureOcrModels(language)
-        val dimensions = pageDimensions.getOrNull(pageIndex) ?: throw IOException("Page dimensions are not ready.")
-        val maxWidth = 1600
-        val maxHeight = 2500
-        val scale = minOf(maxWidth.toFloat() / dimensions.first, maxHeight.toFloat() / dimensions.second)
+        val dataRoot = ensureOcrModels(language)
+        val dimensions = pageDimensions.getOrNull(pageIndex)
+            ?: throw IOException("Page dimensions are not ready.")
+        val maxWidth = 1800
+        val maxHeight = 2800
+        val scale = minOf(
+            maxWidth.toFloat() / dimensions.first,
+            maxHeight.toFloat() / dimensions.second
+        )
         val width = (dimensions.first * scale).roundToInt().coerceAtLeast(1)
         val height = (dimensions.second * scale).roundToInt().coerceAtLeast(1)
         val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
@@ -1751,17 +1755,34 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             val renderer = pdfRenderer ?: throw IOException("No PDF is open.")
             renderer.openPage(pageIndex).use { page ->
                 bitmap.eraseColor(Color.WHITE)
-                page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_PRINT)
             }
             setBusy("Scanning OCR page ${pageIndex + 1}…")
             val tess = TessBaseAPI()
             try {
-                val languageCode = language
-                if (!tess.init(File(filesDir, "tesseract").absolutePath, languageCode)) {
+                if (!tess.init(dataRoot.absolutePath, language, TessBaseAPI.OEM_LSTM_ONLY)) {
                     throw IOException("Tesseract could not initialize the selected OCR language.")
                 }
+
+                // These scanned book pages are single-column, but may contain
+                // headings or footers. AUTO avoids the default single-block
+                // mode dropping text at the top of a page.
+                tess.setPageSegMode(TessBaseAPI.PageSegMode.PSM_AUTO)
                 tess.setImage(bitmap)
-                return tess.getUTF8Text().orEmpty().trim()
+                var recognized = tess.getUTF8Text().orEmpty().trim()
+
+                // Title pages and sparse scans can confuse full-page layout
+                // analysis. Retry only when the first pass returns very little
+                // readable text, then keep the result with more letters/digits.
+                if (countOcrCharacters(recognized) < 24) {
+                    tess.setPageSegMode(TessBaseAPI.PageSegMode.PSM_SPARSE_TEXT)
+                    tess.setImage(bitmap)
+                    val sparseText = tess.getUTF8Text().orEmpty().trim()
+                    if (countOcrCharacters(sparseText) > countOcrCharacters(recognized)) {
+                        recognized = sparseText
+                    }
+                }
+                return recognized
             } finally {
                 tess.recycle()
             }
@@ -1770,22 +1791,50 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         }
     }
 
-    private fun ensureOcrModels(language: String) {
-        val dataRoot = File(filesDir, "tesseract")
-        val tessdata = File(dataRoot, "tessdata")
-        if (!tessdata.exists() && !tessdata.mkdirs()) throw IOException("Cannot create the OCR model folder.")
+    private fun countOcrCharacters(text: String): Int =
+        text.count { it.isLetterOrDigit() }
+
+    private fun ensureOcrModels(language: String): File {
         val languages = when (language) {
             "eng" -> listOf("eng")
             "ben+eng" -> listOf("ben", "eng")
             else -> listOf("ben")
         }
+        val preferBengaliAccuracy = languages.contains("ben")
+        val repository = if (preferBengaliAccuracy) "tessdata_best" else "tessdata_fast"
+        val dataRoot = File(
+            filesDir,
+            if (preferBengaliAccuracy) "tesseract_bengali_best" else "tesseract"
+        )
+
+        try {
+            downloadOcrModels(dataRoot, languages, repository)
+            return dataRoot
+        } catch (error: Exception) {
+            // An upgrade must not strand existing users offline if they already
+            // have the previous fast models cached.
+            val fastRoot = File(filesDir, "tesseract")
+            val cachedFastModelsAvailable = languages.all { code ->
+                val model = File(fastRoot, "tessdata/$code.traineddata")
+                model.isFile && model.length() > 1_000_000L
+            }
+            if (preferBengaliAccuracy && cachedFastModelsAvailable) return fastRoot
+            throw error
+        }
+    }
+
+    private fun downloadOcrModels(dataRoot: File, languages: List<String>, repository: String) {
+        val tessdata = File(dataRoot, "tessdata")
+        if (!tessdata.exists() && !tessdata.mkdirs()) {
+            throw IOException("Cannot create the OCR model folder.")
+        }
         for (code in languages) {
             val model = File(tessdata, "$code.traineddata")
             if (model.isFile && model.length() > 1_000_000L) continue
-            val url = URL("https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/main/$code.traineddata")
+            val url = URL("https://raw.githubusercontent.com/tesseract-ocr/$repository/main/$code.traineddata")
             val connection = (url.openConnection() as HttpURLConnection).apply {
                 connectTimeout = 15_000
-                readTimeout = 45_000
+                readTimeout = 90_000
                 requestMethod = "GET"
             }
             try {
@@ -1816,7 +1865,9 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                         }
                     }
                 }
-                if (model.exists()) model.delete()
+                if (model.exists() && !model.delete()) {
+                    throw IOException("Could not replace the OCR model.")
+                }
                 if (!partial.renameTo(model)) throw IOException("Could not save OCR model.")
             } finally {
                 connection.disconnect()
