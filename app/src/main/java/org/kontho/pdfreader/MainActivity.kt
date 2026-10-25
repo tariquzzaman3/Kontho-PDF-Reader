@@ -1742,8 +1742,10 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         val dataRoot = ensureOcrModels(language)
         val dimensions = pageDimensions.getOrNull(pageIndex)
             ?: throw IOException("Page dimensions are not ready.")
-        val maxWidth = 1800
-        val maxHeight = 2800
+        // This scanned book is around 360 x 580 PDF points; these limits
+        // render close to 300 DPI without allocating an oversized OCR bitmap.
+        val maxWidth = 1600
+        val maxHeight = 2500
         val scale = minOf(
             maxWidth.toFloat() / dimensions.first,
             maxHeight.toFloat() / dimensions.second
