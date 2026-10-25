@@ -1,16 +1,18 @@
 package org.kontho.pdfreader
 
 import androidx.activity.ComponentActivity
+import android.animation.ValueAnimator
 import android.app.AlertDialog
 import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
-import android.content.res.ColorStateList
 import android.database.Cursor
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.Typeface
+import android.graphics.drawable.ClipDrawable
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.LayerDrawable
 import android.os.Handler
 import android.os.Looper
 import android.graphics.pdf.PdfRenderer
@@ -33,6 +35,7 @@ import android.view.ScaleGestureDetector
 import android.view.ViewConfiguration
 import android.view.View
 import android.view.ViewGroup
+import android.view.animation.LinearInterpolator
 import android.view.inputmethod.EditorInfo
 import android.widget.Button
 import android.widget.EditText
@@ -116,6 +119,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private lateinit var progressPanel: LinearLayout
     private lateinit var progressLabel: TextView
     private lateinit var progressBar: ProgressBar
+    private var progressAnimator: ValueAnimator? = null
     private val pageImages = mutableListOf<ImageView>()
     private var pageDimensions: List<Pair<Int, Int>> = emptyList()
     private val pageBitmaps = mutableMapOf<Int, Bitmap>()
@@ -312,6 +316,15 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
+        val logo = ImageView(this).apply {
+            setImageResource(R.drawable.kontho_logo)
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            contentDescription = "কণ্ঠ · Kontho PDF Reader logo"
+        }
+        header.addView(logo, LinearLayout.LayoutParams(dp(44), dp(44)).apply {
+            marginEnd = dp(8)
+        })
+
         val title = TextView(this).apply {
             text = "কণ্ঠ · Kontho PDF Reader"
             textSize = 22f
@@ -548,7 +561,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             }
             val card = LinearLayout(this).apply {
                 orientation = if (getSharedPreferences("kontho_library", MODE_PRIVATE).getString("library_view", "grid") == "list") LinearLayout.HORIZONTAL else LinearLayout.VERTICAL
-                setPadding(dp(8), dp(8), dp(8), dp(8))
+                setPadding(dp(8), dp(5), dp(8), dp(5))
                 background = GradientDrawable().apply {
                     setColor(if (darkCard) Color.rgb(39, 47, 44) else Color.WHITE)
                     cornerRadius = dp(10).toFloat()
@@ -904,33 +917,49 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     }
 
     private fun createProgressPanel(dark: Boolean): LinearLayout {
+        progressAnimator?.cancel()
+        progressAnimator = null
         progressPanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(9), dp(3), dp(9), dp(4))
+            setPadding(dp(10), dp(6), dp(10), dp(7))
             background = GradientDrawable().apply {
                 cornerRadius = dp(8).toFloat()
-                setColor(if (dark) Color.argb(224, 20, 28, 26) else Color.argb(238, 255, 255, 255))
+                setColor(if (dark) Color.rgb(20, 28, 26) else Color.WHITE)
+                setStroke(dp(1), if (dark) Color.rgb(76, 100, 88) else Color.rgb(198, 216, 204))
             }
             visibility = View.GONE
         }
         progressLabel = TextView(this).apply {
-            textSize = 10f
-            setTextColor(if (dark) Color.rgb(220, 236, 229) else Color.rgb(70, 91, 82))
+            textSize = 12f
+            setTextColor(if (dark) Color.rgb(225, 239, 231) else Color.rgb(48, 75, 61))
             maxLines = 1
             ellipsize = android.text.TextUtils.TruncateAt.END
+        }
+        val track = GradientDrawable().apply {
+            cornerRadius = dp(5).toFloat()
+            setColor(if (dark) Color.rgb(61, 79, 69) else Color.rgb(220, 231, 224))
+        }
+        val fill = GradientDrawable().apply {
+            cornerRadius = dp(5).toFloat()
+            setColor(if (dark) Color.rgb(62, 224, 144) else Color.rgb(18, 135, 87))
         }
         progressBar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
             max = 100
             progress = 0
-            isIndeterminate = true
-            progressTintList = ColorStateList.valueOf(Color.rgb(18, 135, 86))
-            indeterminateTintList = ColorStateList.valueOf(Color.rgb(18, 135, 86))
+            isIndeterminate = false
+            progressDrawable = LayerDrawable(arrayOf(
+                track,
+                ClipDrawable(fill, Gravity.START, ClipDrawable.HORIZONTAL)
+            )).apply {
+                setId(0, android.R.id.background)
+                setId(1, android.R.id.progress)
+            }
         }
         progressPanel.addView(progressLabel, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
-        ).apply { bottomMargin = dp(2) })
+        ).apply { bottomMargin = dp(4) })
         progressPanel.addView(progressBar, LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, dp(3)
+            ViewGroup.LayoutParams.MATCH_PARENT, dp(9)
         ))
         return progressPanel
     }
@@ -940,16 +969,36 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             if (!::progressPanel.isInitialized || !::progressLabel.isInitialized || !::progressBar.isInitialized) return@post
             progressPanel.visibility = View.VISIBLE
             progressLabel.text = message
-            progressBar.isIndeterminate = percent == null
-            if (percent != null) progressBar.progress = percent.coerceIn(0, 100)
+            if (percent == null) {
+                if (progressAnimator?.isRunning != true) {
+                    progressAnimator?.cancel()
+                    progressAnimator = ValueAnimator.ofInt(18, 76, 18).apply {
+                        duration = 1_100L
+                        repeatCount = ValueAnimator.INFINITE
+                        interpolator = LinearInterpolator()
+                        addUpdateListener { animation ->
+                            if (::progressBar.isInitialized && progressPanel.visibility == View.VISIBLE) {
+                                progressBar.progress = animation.animatedValue as Int
+                            }
+                        }
+                        start()
+                    }
+                }
+            } else {
+                progressAnimator?.cancel()
+                progressAnimator = null
+                progressBar.progress = percent.coerceIn(0, 100)
+            }
         }
     }
 
     private fun clearBusy() {
         mainHandler.post {
+            progressAnimator?.cancel()
+            progressAnimator = null
             if (::progressPanel.isInitialized) progressPanel.visibility = View.GONE
             if (::progressBar.isInitialized) {
-                progressBar.isIndeterminate = true
+                progressBar.isIndeterminate = false
                 progressBar.progress = 0
             }
         }
@@ -1253,19 +1302,20 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             setTextColor(primaryTextColor)
             setPadding(dp(10), dp(9), dp(8), dp(9))
         }
-        pageJumpRow.addView(pageJumpLabel, LinearLayout.LayoutParams(0, dp(48), 1f))
+        pageJumpRow.addView(pageJumpLabel, LinearLayout.LayoutParams(0, dp(40), 1f))
         val pageJumpInput = EditText(this).apply {
             inputType = InputType.TYPE_CLASS_NUMBER
             imeOptions = EditorInfo.IME_ACTION_GO
             isSingleLine = true
-            textSize = 15f
+            textSize = 12f
             gravity = Gravity.CENTER
+            setPadding(dp(4), 0, dp(4), 0)
             setText((currentPage + 1).toString())
             setSelectAllOnFocus(true)
             hint = "1-" + pageCount
             contentDescription = label("Page number", "পৃষ্ঠা নম্বর")
         }
-        pageJumpRow.addView(pageJumpInput, LinearLayout.LayoutParams(dp(76), dp(46)))
+        pageJumpRow.addView(pageJumpInput, LinearLayout.LayoutParams(dp(64), dp(36)))
         fun jumpToEnteredPage() {
             val pageNumber = pageJumpInput.text.toString().trim().toIntOrNull()
             if (pageNumber == null || pageNumber !in 1..pageCount) {
@@ -1284,9 +1334,13 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         val pageJumpButton = Button(this).apply {
             text = label("Go", "যান")
             isAllCaps = false
+            textSize = 12f
+            minHeight = dp(32)
+            minimumHeight = dp(32)
+            setPadding(dp(4), 0, dp(4), 0)
             setOnClickListener { jumpToEnteredPage() }
         }
-        pageJumpRow.addView(pageJumpButton, LinearLayout.LayoutParams(dp(64), dp(46)).apply {
+        pageJumpRow.addView(pageJumpButton, LinearLayout.LayoutParams(dp(52), dp(36)).apply {
             leftMargin = dp(4)
             rightMargin = dp(6)
         })
@@ -1304,7 +1358,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         }
         val zoomTitle = TextView(this).apply {
             text = label("Zoom", "জুম")
-            textSize = 14f
+            textSize = 15f
             setTextColor(primaryTextColor)
         }
         zoomRow.addView(zoomTitle, LinearLayout.LayoutParams(0, dp(44), 1f))
@@ -1312,8 +1366,9 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             inputType = InputType.TYPE_CLASS_NUMBER
             imeOptions = EditorInfo.IME_ACTION_GO
             isSingleLine = true
-            textSize = 14f
+            textSize = 12f
             gravity = Gravity.CENTER
+            setPadding(dp(2), 0, dp(2), 0)
             setTextColor(primaryTextColor)
             setText((zoomScale * 100).roundToInt().toString())
             setSelectAllOnFocus(true)
@@ -1321,7 +1376,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         }
         val zoomUnit = TextView(this).apply {
             text = "%"
-            textSize = 14f
+            textSize = 12f
             gravity = Gravity.CENTER
             setTextColor(primaryTextColor)
         }
@@ -1351,7 +1406,11 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         }
         val zoomOut = Button(this).apply {
             text = "−"
+            textSize = 13f
             isAllCaps = false
+            minHeight = dp(32)
+            minimumHeight = dp(32)
+            setPadding(dp(2), 0, dp(2), 0)
             setOnClickListener {
                 commitZoomInput()
                 applyZoom(zoomScale - 0.1f, rerender = true)
@@ -1360,27 +1419,24 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         }
         val zoomIn = Button(this).apply {
             text = "+"
+            textSize = 13f
             isAllCaps = false
+            minHeight = dp(32)
+            minimumHeight = dp(32)
+            setPadding(dp(2), 0, dp(2), 0)
             setOnClickListener {
                 commitZoomInput()
                 applyZoom(zoomScale + 0.1f, rerender = true)
                 zoomPercent.setText((zoomScale * 100).roundToInt().toString())
             }
         }
-        zoomRow.addView(zoomOut, LinearLayout.LayoutParams(dp(52), dp(44)))
-        zoomRow.addView(zoomPercent, LinearLayout.LayoutParams(dp(58), dp(44)))
-        zoomRow.addView(zoomUnit, LinearLayout.LayoutParams(dp(18), dp(44)))
-        zoomRow.addView(zoomIn, LinearLayout.LayoutParams(dp(52), dp(44)))
+        zoomRow.addView(zoomOut, LinearLayout.LayoutParams(dp(38), dp(36)))
+        zoomRow.addView(zoomPercent, LinearLayout.LayoutParams(dp(48), dp(36)))
+        zoomRow.addView(zoomUnit, LinearLayout.LayoutParams(dp(16), dp(36)))
+        zoomRow.addView(zoomIn, LinearLayout.LayoutParams(dp(38), dp(36)))
         content.addView(zoomRow, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
         ))
-        addAction(label("Back to library", "বইয়ের তালিকায় ফিরুন"), {
-            showLibrary()
-            if (pendingFolderScan) {
-                pendingFolderScan = false
-                refreshLibrary()
-            }
-        })
         addAction(label("Share PDF", "PDF শেয়ার করুন"), { shareCurrentBook() })
         addAction(label("Print PDF", "PDF প্রিন্ট করুন"), { printCurrentBook() })
         addAction(label("Download opened book…", "খোলা বই ডাউনলোড…"), {
@@ -2210,6 +2266,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     override fun onDestroy() {
         readerGeneration++
         mainHandler.removeCallbacks(hideReaderOverlaysRunnable)
+        progressAnimator?.cancel()
+        progressAnimator = null
         tts?.stop()
         tts?.shutdown()
         releaseReaderBitmaps()
