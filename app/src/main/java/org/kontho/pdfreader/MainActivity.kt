@@ -430,6 +430,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             runOnUiThread {
                 if (!showingLibrary) {
                     if (::librarySwipe.isInitialized) librarySwipe.isRefreshing = false
+                    clearBusy()
                     return@runOnUiThread
                 }
                 books = sorted
@@ -1457,7 +1458,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         val generation = readerGeneration
         val uri = currentBook?.uri ?: return
         val language = preferences.getString("ocr_language", "ben") ?: "ben"
-        val cacheKey = "${uri}#${requestedPage + 1}"
+        val cacheKey = "${uri}#${requestedPage + 1}#${language}"
         val inMemory = ocrTextCache[cacheKey]
         if (inMemory != null) {
             speakTextOnCurrentPage(inMemory, requestedPage, "ocr")
@@ -1466,7 +1467,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         setBusy("Scanning OCR page ${requestedPage + 1}…")
         worker.execute {
             try {
-                val cacheFile = ocrCacheFile(uri, requestedPage)
+                val cacheFile = ocrCacheFile(uri, requestedPage, language)
                 val cachedText = if (cacheFile.isFile) cacheFile.readText(Charsets.UTF_8) else null
                 val recognizedText = cachedText?.takeIf { it.isNotBlank() }
                     ?: recognizePdfPage(uri, requestedPage, language)
@@ -1495,8 +1496,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         }
     }
 
-    private fun ocrCacheFile(uri: Uri, pageIndex: Int): File =
-        File(File(cacheDir, "ocr"), "${uri.toString().hashCode()}_page_${pageIndex + 1}.txt")
+    private fun ocrCacheFile(uri: Uri, pageIndex: Int, language: String): File =
+        File(File(cacheDir, "ocr"), "${uri.toString().hashCode()}_page_${pageIndex + 1}_${language.replace('+', '_')}.txt")
 
     /**
      * Bengali/English OCR models download once on first OCR use. The page scan
