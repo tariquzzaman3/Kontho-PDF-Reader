@@ -481,10 +481,10 @@ class SettingsActivity : ComponentActivity() {
         val descending = prefs.getBoolean("sort_descending", false)
         val sortSummary = when (sort) {
             "date" -> if (descending) label("Date · newest first", "তারিখ · নতুন আগে") else label("Date · oldest first", "তারিখ · পুরোনো আগে")
-            else -> if (descending) label("Name · descending", "নাম · নিম্নক্রম") else label("Name · ascending", "নাম · ঊর্ধ্বক্রম")
+            else -> if (descending) label("Name · descending", "নাম: শেষ থেকে শুরু") else label("Name · ascending", "নাম: শুরু থেকে শেষ")
         }
         addRow(label("Sort books", "বই সাজান"), sortSummary) {
-            val items = arrayOf(label("Name · ascending", "নাম · ঊর্ধ্বক্রম"), label("Name · descending", "নাম · নিম্নক্রম"), label("Date · newest first", "তারিখ · নতুন আগে"), label("Date · oldest first", "তারিখ · পুরোনো আগে"))
+            val items = arrayOf(label("Name · ascending", "নাম: শুরু থেকে শেষ"), label("Name · descending", "নাম: শেষ থেকে শুরু"), label("Date · newest first", "তারিখ · নতুন আগে"), label("Date · oldest first", "তারিখ · পুরোনো আগে"))
             val selected = when (sort) { "date" -> if (descending) 2 else 3; else -> if (descending) 1 else 0 }
             AlertDialog.Builder(this).setTitle(label("Sort books", "বই সাজান")).setSingleChoiceItems(items, selected) { dialog, which ->
                 prefs.edit().putString("sort_field", if (which < 2) "name" else "date").putBoolean("sort_descending", which == 1 || which == 2).apply()

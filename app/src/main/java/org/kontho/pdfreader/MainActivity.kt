@@ -27,6 +27,7 @@ import android.view.ScaleGestureDetector
 import android.view.ViewConfiguration
 import android.view.View
 import android.view.ViewGroup
+import android.view.inputmethod.EditorInfo
 import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
@@ -362,7 +363,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         val field = prefs.getString("sort_field", "name") ?: "name"
         val descending = prefs.getBoolean("sort_descending", false)
         val bn = prefs.getString("app_language", "en") == "bn"
-        val names = if (bn) arrayOf("নাম · আ–জ", "নাম · জ–আ", "তারিখ · নতুন আগে", "তারিখ · পুরোনো আগে")
+        val names = if (bn) arrayOf("নাম: শুরু থেকে শেষ", "নাম: শেষ থেকে শুরু", "তারিখ · নতুন আগে", "তারিখ · পুরোনো আগে")
             else arrayOf("Name · A–Z", "Name · Z–A", "Date · newest first", "Date · oldest first")
         popup.menu.add(0, 0, 0, names[0] + if (field == "name" && !descending) " ✓" else "")
         popup.menu.add(0, 1, 1, names[1] + if (field == "name" && descending) " ✓" else "")
@@ -1112,6 +1113,14 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
     private fun showReaderMenu(anchor: View) {
         val bn = preferences.getString("app_language", "en") == "bn"
+        val dark = when (preferences.getString("app_theme", "system")) {
+            "dark" -> true
+            "light" -> false
+            else -> (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+        }
+        val primaryTextColor = if (dark) Color.rgb(238, 242, 239) else Color.rgb(30, 55, 46)
+        val secondaryTextColor = if (dark) Color.rgb(174, 218, 202) else Color.rgb(20, 105, 80)
+        val dividerColor = if (dark) Color.rgb(71, 82, 77) else Color.rgb(225, 230, 227)
         fun label(en: String, bnText: String) = if (bn) bnText else en
         mainHandler.removeCallbacks(hideReaderOverlaysRunnable)
 
@@ -1134,7 +1143,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 text = title
                 textSize = 15f
                 gravity = Gravity.CENTER_VERTICAL
-                setTextColor(Color.rgb(30, 55, 46))
+                setTextColor(primaryTextColor)
                 setPadding(dp(10), dp(9), dp(8), dp(9))
                 isClickable = true
                 isFocusable = true
@@ -1149,7 +1158,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                     text = "⚙"
                     textSize = 20f
                     gravity = Gravity.CENTER
-                    setTextColor(Color.rgb(20, 105, 80))
+                    setTextColor(secondaryTextColor)
                     contentDescription = "$title settings"
                     isClickable = true
                     isFocusable = true
@@ -1163,14 +1172,14 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             content.addView(row, LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
             ))
-            val divider = View(this).apply { setBackgroundColor(Color.rgb(225, 230, 227)) }
+            val divider = View(this).apply { setBackgroundColor(dividerColor) }
             content.addView(divider, LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(1)
             ))
         }
 
         addAction(label("Rotate screen", "স্ক্রিন ঘোরান"), { rotateReaderScreen() })
-        addAction(label("Read aloud (device default)", "পড়ে শোনান (ডিভাইসের ডিফল্ট)"),
+        addAction(label("Read aloud", "পড়ে শোনান"),
             { startDeviceDefaultReadAloud() }, { showSpeechSettings() })
         addAction(label("Read aloud (OCR)", "OCR দিয়ে পড়ে শোনান"),
             { startOcrReadAloud() }, { showOcrSettings() })
@@ -1178,7 +1187,61 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             val name = currentBook?.name ?: "book.pdf"
             createPdfCopy.launch(if (name.endsWith(".pdf", true)) name else "$name.pdf")
         })
-        addAction(label("Go to page…", "পৃষ্ঠা নম্বরে যান…"), { showGoToPageDialog() })
+        val pageJumpRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val pageJumpLabel = TextView(this).apply {
+            text = label("Go to page", "পৃষ্ঠা নম্বরে যান")
+            textSize = 15f
+            gravity = Gravity.CENTER_VERTICAL
+            setTextColor(primaryTextColor)
+            setPadding(dp(10), dp(9), dp(8), dp(9))
+        }
+        pageJumpRow.addView(pageJumpLabel, LinearLayout.LayoutParams(0, dp(48), 1f))
+        val pageJumpInput = EditText(this).apply {
+            inputType = InputType.TYPE_CLASS_NUMBER
+            imeOptions = EditorInfo.IME_ACTION_GO
+            isSingleLine = true
+            textSize = 15f
+            gravity = Gravity.CENTER
+            setText((currentPage + 1).toString())
+            setSelectAllOnFocus(true)
+            hint = "1-" + pageCount
+            contentDescription = label("Page number", "পৃষ্ঠা নম্বর")
+        }
+        pageJumpRow.addView(pageJumpInput, LinearLayout.LayoutParams(dp(76), dp(46)))
+        fun jumpToEnteredPage() {
+            val pageNumber = pageJumpInput.text.toString().trim().toIntOrNull()
+            if (pageNumber == null || pageNumber !in 1..pageCount) {
+                pageJumpInput.error = label("Enter a page from 1 to " + pageCount, "১ থেকে " + pageCount + " এর মধ্যে পৃষ্ঠা লিখুন")
+                return
+            }
+            dialog.dismiss()
+            showPage(pageNumber - 1)
+        }
+        pageJumpInput.setOnEditorActionListener { _, actionId, _ ->
+            if (actionId == EditorInfo.IME_ACTION_GO || actionId == EditorInfo.IME_ACTION_DONE) {
+                jumpToEnteredPage()
+                true
+            } else false
+        }
+        val pageJumpButton = Button(this).apply {
+            text = label("Go", "যান")
+            isAllCaps = false
+            setOnClickListener { jumpToEnteredPage() }
+        }
+        pageJumpRow.addView(pageJumpButton, LinearLayout.LayoutParams(dp(64), dp(46)).apply {
+            leftMargin = dp(4)
+            rightMargin = dp(6)
+        })
+        content.addView(pageJumpRow, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ))
+        val pageJumpDivider = View(this).apply { setBackgroundColor(dividerColor) }
+        content.addView(pageJumpDivider, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, dp(1)
+        ))
         addAction(label("Set current page as cover", "বর্তমান পৃষ্ঠাটি কভার করুন"), { saveCurrentPageAsCover() })
         addAction(label("Choose cover page…", "কভার পৃষ্ঠা বাছুন…"), { showCoverPageDialog() })
         addAction(label("Back to library", "বইয়ের তালিকায় ফিরুন"), {
@@ -1197,33 +1260,71 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         val zoomTitle = TextView(this).apply {
             text = label("Zoom", "জুম")
             textSize = 14f
-            setTextColor(Color.rgb(37, 58, 49))
+            setTextColor(primaryTextColor)
         }
         zoomRow.addView(zoomTitle, LinearLayout.LayoutParams(0, dp(44), 1f))
-        val zoomPercent = TextView(this).apply {
-            text = "${(zoomScale * 100).roundToInt()}%"
+        val zoomPercent = EditText(this).apply {
+            inputType = InputType.TYPE_CLASS_NUMBER
+            imeOptions = EditorInfo.IME_ACTION_GO
+            isSingleLine = true
             textSize = 14f
             gravity = Gravity.CENTER
-            setTextColor(Color.rgb(30, 55, 46))
+            setTextColor(primaryTextColor)
+            setText((zoomScale * 100).roundToInt().toString())
+            setSelectAllOnFocus(true)
+            contentDescription = label("Zoom percentage", "জুমের শতাংশ")
+        }
+        val zoomUnit = TextView(this).apply {
+            text = "%"
+            textSize = 14f
+            gravity = Gravity.CENTER
+            setTextColor(primaryTextColor)
+        }
+        fun commitZoomInput(): Boolean {
+            val entered = zoomPercent.text.toString().trim().toIntOrNull()
+            if (entered == null) {
+                zoomPercent.error = label("Enter a zoom from 60 to 300", "৬০ থেকে ৩০০ এর মধ্যে জুম লিখুন")
+                zoomPercent.setText((zoomScale * 100).roundToInt().toString())
+                return false
+            }
+            val normalized = entered.coerceIn(60, 300)
+            zoomPercent.error = null
+            if (kotlin.math.abs(zoomScale - normalized / 100f) >= 0.005f) {
+                applyZoom(normalized / 100f, rerender = true)
+            }
+            zoomPercent.setText(normalized.toString())
+            return true
+        }
+        zoomPercent.setOnEditorActionListener { _, actionId, _ ->
+            if (actionId == EditorInfo.IME_ACTION_GO || actionId == EditorInfo.IME_ACTION_DONE) {
+                commitZoomInput()
+                true
+            } else false
+        }
+        zoomPercent.setOnFocusChangeListener { _, hasFocus ->
+            if (!hasFocus) commitZoomInput()
         }
         val zoomOut = Button(this).apply {
             text = "−"
             isAllCaps = false
             setOnClickListener {
+                commitZoomInput()
                 applyZoom(zoomScale - 0.1f, rerender = true)
-                zoomPercent.text = "${(zoomScale * 100).roundToInt()}%"
+                zoomPercent.setText((zoomScale * 100).roundToInt().toString())
             }
         }
         val zoomIn = Button(this).apply {
             text = "+"
             isAllCaps = false
             setOnClickListener {
+                commitZoomInput()
                 applyZoom(zoomScale + 0.1f, rerender = true)
-                zoomPercent.text = "${(zoomScale * 100).roundToInt()}%"
+                zoomPercent.setText((zoomScale * 100).roundToInt().toString())
             }
         }
         zoomRow.addView(zoomOut, LinearLayout.LayoutParams(dp(52), dp(44)))
-        zoomRow.addView(zoomPercent, LinearLayout.LayoutParams(dp(64), dp(44)))
+        zoomRow.addView(zoomPercent, LinearLayout.LayoutParams(dp(58), dp(44)))
+        zoomRow.addView(zoomUnit, LinearLayout.LayoutParams(dp(18), dp(44)))
         zoomRow.addView(zoomIn, LinearLayout.LayoutParams(dp(52), dp(44)))
         content.addView(zoomRow, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
@@ -1378,30 +1479,6 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                     val book = currentBook ?: return@setPositiveButton
                     preferences.edit().putInt(coverPageKey(book.uri), page - 1).apply()
                     toast("Book cover updated to page $page.")
-                }
-            }
-            .show()
-    }
-
-    private fun showGoToPageDialog() {
-        if (pageCount <= 0) return
-        val input = EditText(this).apply {
-            inputType = InputType.TYPE_CLASS_NUMBER
-            setText((currentPage + 1).toString())
-            selectAll()
-            hint = "Page number"
-        }
-        AlertDialog.Builder(this)
-            .setTitle("Go to page")
-            .setMessage("Enter a page number from 1 to $pageCount.")
-            .setView(input)
-            .setNegativeButton("Cancel", null)
-            .setPositiveButton("Go") { _, _ ->
-                val page = input.text.toString().toIntOrNull()
-                if (page == null || page !in 1..pageCount) {
-                    toast("Enter a page from 1 to $pageCount.")
-                } else {
-                    showPage(page - 1)
                 }
             }
             .show()
