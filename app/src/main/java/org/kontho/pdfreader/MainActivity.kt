@@ -18,6 +18,11 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.ParcelFileDescriptor
 import android.provider.OpenableColumns
+import android.print.PageRange
+import android.print.PrintAttributes
+import android.print.PrintDocumentAdapter
+import android.print.PrintDocumentInfo
+import android.print.PrintManager
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.text.InputType
@@ -34,6 +39,7 @@ import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
 import android.widget.SeekBar
 import android.widget.PopupMenu
+import android.widget.PopupWindow
 import android.widget.GridLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -99,6 +105,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private lateinit var horizontalPageScroll: HorizontalScrollView
     private lateinit var pagesContainer: LinearLayout
     private lateinit var readerMenuButton: TextView
+    private var readerOptionsPopup: PopupWindow? = null
     private lateinit var readerPlaybackPanel: LinearLayout
     private lateinit var readerPlayButton: TextView
     private lateinit var readerPauseButton: TextView
@@ -723,13 +730,14 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             contentDescription = if (preferences.getString("app_language", "en") == "bn") "আরও বিকল্প" else "More options"
             setOnClickListener {
                 if (tag == "menu_open") {
+                    readerOptionsPopup?.dismiss()
                     tag = null
                     text = "⋮"
                     showReaderOverlays()
                 } else {
                     tag = "menu_open"
                     text = "×"
-                    showReaderOverlays()
+                    mainHandler.removeCallbacks(hideReaderOverlaysRunnable)
                     showReaderMenu(this)
                 }
             }
@@ -748,15 +756,12 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             elevation = dp(8).toFloat()
             visibility = View.GONE
         }
-        readerPlayButton = playbackButton("▶", "Play or resume reading") {
-            if (narrationPaused) {
-                resumeReaderNarration()
-            } else if (!isNarrating) {
+        readerPlayButton = playbackButton("▶", "Legacy play control") {
+            if (narrationPaused) resumeReaderNarration()
+            else if (!isNarrating) {
                 if (lastNarrationMode == "ocr") startOcrReadAloud() else startDeviceDefaultReadAloud()
-            } else {
-                showReaderOverlays()
             }
-        }
+        }.apply { visibility = View.GONE }
         readerPauseButton = playbackButton("▶", "Play or pause reading") {
             if (narrationPaused) resumeReaderNarration()
             else if (isNarrating) pauseReaderNarration()
@@ -1131,7 +1136,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         mainHandler.removeCallbacks(hideReaderOverlaysRunnable)
         readerMenuButton.visibility = View.VISIBLE
         readerPlaybackPanel.visibility = if (isNarrating || narrationPaused) View.VISIBLE else View.GONE
-        readerPauseButton.text = if (narrationPaused) "▶" else "Ⅱ"
+        readerPauseButton.text = if (isNarrating && !narrationPaused) "Ⅱ" else "▶"
         mainHandler.postDelayed(hideReaderOverlaysRunnable, 2_000L)
     }
 
@@ -1158,11 +1163,22 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(4), dp(4), dp(4), dp(4))
         }
-        val dialog = AlertDialog.Builder(this)
-            .setTitle(label("Reader options", "রিডার অপশন"))
-            .setView(content)
-            .setNegativeButton(label("Close", "বন্ধ"), null)
-            .create()
+        val menuHeader = TextView(this).apply {
+            text = label("Reader options", "রিডার অপশন")
+            textSize = 17f
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER_VERTICAL
+            setTextColor(primaryTextColor)
+            setPadding(dp(12), dp(8), dp(12), dp(8))
+        }
+        content.addView(menuHeader, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ))
+        val menuHeaderDivider = View(this).apply { setBackgroundColor(dividerColor) }
+        content.addView(menuHeaderDivider, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, dp(1)
+        ))
+        var popup: PopupWindow? = null
 
         fun addAction(title: String, action: () -> Unit, settingsAction: (() -> Unit)? = null) {
             val row = LinearLayout(this).apply {
@@ -1178,7 +1194,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 isClickable = true
                 isFocusable = true
                 setOnClickListener {
-                    dialog.dismiss()
+                    popup?.dismiss()
                     action()
                 }
             }
@@ -1193,7 +1209,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                     isClickable = true
                     isFocusable = true
                     setOnClickListener {
-                        dialog.dismiss()
+                        popup?.dismiss()
                         settingsAction()
                     }
                 }
@@ -1208,6 +1224,11 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             ))
         }
 
+        addAction(label("Share PDF", "PDF শেয়ার করুন"), { shareCurrentBook() })
+        addAction(label("Print PDF", "PDF প্রিন্ট করুন"), { printCurrentBook() })
+        addAction(label("Settings", "সেটিংস"), {
+            startActivity(Intent(this@MainActivity, SettingsActivity::class.java))
+        })
         addAction(label("Rotate screen", "স্ক্রিন ঘোরান"), { rotateReaderScreen() })
         addAction(label("Read aloud", "পড়ে শোনান"),
             { startDeviceDefaultReadAloud() }, { showSpeechSettings() })
@@ -1247,7 +1268,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 pageJumpInput.error = label("Enter a page from 1 to " + pageCount, "১ থেকে " + pageCount + " এর মধ্যে পৃষ্ঠা লিখুন")
                 return
             }
-            dialog.dismiss()
+            popup?.dismiss()
             showPage(pageNumber - 1)
         }
         pageJumpInput.setOnEditorActionListener { _, actionId, _ ->
@@ -1359,8 +1380,35 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         content.addView(zoomRow, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
         ))
-        dialog.setOnDismissListener { showReaderOverlays() }
-        dialog.show()
+        val scroll = ScrollView(this).apply {
+            isFillViewport = false
+            setBackgroundColor(if (dark) Color.rgb(28, 35, 32) else Color.WHITE)
+            addView(content, ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            ))
+        }
+        val popupWidth = minOf(dp(360), resources.displayMetrics.widthPixels - dp(24)).coerceAtLeast(dp(240))
+        val popupHeight = minOf(dp(620), resources.displayMetrics.heightPixels - dp(100)).coerceAtLeast(dp(280))
+        val menuPopup = PopupWindow(scroll, popupWidth, popupHeight, true).apply {
+            setBackgroundDrawable(GradientDrawable().apply {
+                cornerRadius = dp(14).toFloat()
+                setColor(if (dark) Color.rgb(28, 35, 32) else Color.WHITE)
+                setStroke(dp(1), dividerColor)
+            })
+            elevation = dp(12).toFloat()
+            isOutsideTouchable = true
+            setOnDismissListener {
+                readerOptionsPopup = null
+                if (::readerMenuButton.isInitialized) {
+                    readerMenuButton.tag = null
+                    readerMenuButton.text = "⋮"
+                }
+                showReaderOverlays()
+            }
+        }
+        popup = menuPopup
+        readerOptionsPopup = menuPopup
+        menuPopup.showAsDropDown(anchor, 0, dp(4), Gravity.END)
     }
 
     private fun showSpeechSettings() {
@@ -1416,7 +1464,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                     .apply()
                 tts?.setSpeechRate(rateSetting)
                 tts?.setPitch(pitchSetting)
-                dialog.dismiss()
+                popup?.dismiss()
             }
         }
         dialog.show()
@@ -1442,7 +1490,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             .setTitle(if (language) "OCR ভাষা" else "OCR language")
             .setSingleChoiceItems(labels, selected) { dialog, which ->
                 preferences.edit().putString("ocr_language", languages[which]).apply()
-                dialog.dismiss()
+                popup?.dismiss()
                 Toast.makeText(this, labels[which], Toast.LENGTH_SHORT).show()
             }
             .setNeutralButton(if (language) "OCR ক্যাশ মুছুন" else "Clear OCR cache") { _, _ ->
@@ -1826,7 +1874,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         narrationSegments = emptyList()
         narrationCurrentSegmentIndex = 0
         lastNarrationUtteranceId = null
-        if (::readerPauseButton.isInitialized) readerPauseButton.text = "Ⅱ"
+        if (::readerPauseButton.isInitialized) readerPauseButton.text = "▶"
         if (::readerPlaybackPanel.isInitialized) readerPlaybackPanel.visibility = View.GONE
     }
 
@@ -1861,7 +1909,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                         if (!isFinishing && !showingLibrary) {
                             if (segment != null) narrationCurrentSegmentIndex = segment
                             if (!narrationPaused) isNarrating = true
-                            if (::readerPauseButton.isInitialized) readerPauseButton.text = if (narrationPaused) "▶" else "Ⅱ"
+                            if (::readerPauseButton.isInitialized) readerPauseButton.text = if (isNarrating && !narrationPaused) "Ⅱ" else "▶"
                         }
                     }
                 }
@@ -1872,7 +1920,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                             isNarrating = false
                             narrationPaused = false
                             lastNarrationUtteranceId = null
-                            if (::readerPauseButton.isInitialized) readerPauseButton.text = "Ⅱ"
+                            if (::readerPauseButton.isInitialized) readerPauseButton.text = "▶"
                             showReaderOverlays()
                         }
                     }
