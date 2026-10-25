@@ -547,6 +547,25 @@ class SettingsActivity : ComponentActivity() {
                 .setPositiveButton(label("OK", "ঠিক আছে"), null).show()
         }
 
+        addRow(label("About Kontho", "কণ্ঠ পরিচিতি"), label("Version 0.6.0 · Bangla PDF reader", "সংস্করণ ০.৬.০ · বাংলা PDF রিডার")) {
+            AlertDialog.Builder(this)
+                .setTitle("কণ্ঠ · Kontho PDF Reader")
+                .setMessage(label("Version 0.6.0\\nRead PDFs, use Bengali/English OCR, and listen through Android text-to-speech.", "সংস্করণ ০.৬.০\\nPDF পড়ুন, বাংলা/ইংরেজি OCR ব্যবহার করুন এবং Android-এর কণ্ঠে শুনুন।"))
+                .setPositiveButton(label("OK", "ঠিক আছে"), null).show()
+        }
+
+        addRow(label("Check for updates", "আপডেট দেখুন"), label("Open official GitHub releases", "অফিশিয়াল GitHub রিলিজ খুলুন")) {
+            try { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/tariquzzaman3/Kontho-PDF-Reader/releases"))) }
+            catch (_: Exception) { Toast.makeText(this, label("Could not open updates", "আপডেট খোলা যায়নি"), Toast.LENGTH_LONG).show() }
+        }
+
+        addRow(label("Automatic updates", "স্বয়ংক্রিয় আপডেট"), label("Managed by Google Play after installation from Play Store", "Play Store থেকে ইনস্টল করলে Google Play আপডেট পরিচালনা করবে")) {
+            AlertDialog.Builder(this)
+                .setTitle(label("Automatic updates", "স্বয়ংক্রিয় আপডেট"))
+                .setMessage(label("Kontho does not silently install APKs. Google Play manages automatic updates for Play-installed apps. For GitHub builds, use Check for updates.", "কণ্ঠ নিজে থেকে APK ইনস্টল করে না। Play Store থেকে ইনস্টল করা অ্যাপের স্বয়ংক্রিয় আপডেট Google Play পরিচালনা করে। GitHub সংস্করণের জন্য আপডেট দেখুন।"))
+                .setPositiveButton(label("OK", "ঠিক আছে"), null).show()
+        }
+
         addRow(label("Privacy policy", "গোপনীয়তা নীতি"), label("How Kontho handles PDFs, OCR and voice data", "PDF, OCR ও ভয়েস ডেটা কীভাবে ব্যবহৃত হয়")) {
             showPrivacyPolicy()
         }
