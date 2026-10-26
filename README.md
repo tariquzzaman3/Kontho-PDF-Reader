@@ -4,6 +4,12 @@
 
 Kontho (কণ্ঠ) is an Android application built with Kotlin for reading Bangla and English PDFs. Its main strength is recognizing Bangla text on scanned PDF pages—even when the page is stored as an image and does not contain selectable text—and reading the recognized content aloud.
 
+## Download preview
+
+The current preview APK is published on the [GitHub Releases page](https://github.com/tariquzzaman3/Kontho-PDF-Reader/releases/tag/v0.6.0-preview.1).
+
+This is a **debug-signed preview build for manual installation and testing**, not a production-signed APK or a Google Play release. Bangla OCR depends on scan quality, and spoken Bangla depends on the TTS voice available on the device. The app has passed the automated GitHub Actions build; physical-device testing is still required.
+
 ## Key Features
 
 ### Read Bangla scanned PDFs

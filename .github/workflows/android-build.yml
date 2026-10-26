@@ -70,3 +70,57 @@ jobs:
           name: kontho-pdf-reader-release-aab
           path: app/build/outputs/bundle/release/app-release.aab
           if-no-files-found: error
+
+  publish-preview:
+    if: >-
+      ${{ github.event_name == 'push' &&
+          github.ref == 'refs/heads/main' &&
+          contains(github.event.head_commit.message, '[release]') }}
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download debug APK artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: kontho-pdf-reader-debug
+          path: release-assets
+
+      - name: Prepare preview APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk="$(find release-assets -type f -name 'app-debug.apk' -print -quit)"
+          if [ -z "$apk" ]; then
+            echo "Debug APK artifact did not contain app-debug.apk." >&2
+            exit 1
+          fi
+          cp "$apk" "Kontho-PDF-Reader-v0.6.0-preview.1.apk"
+          test -s "Kontho-PDF-Reader-v0.6.0-preview.1.apk"
+
+      - name: Publish preview to GitHub Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          cat > release-notes.md <<'NOTES'
+          ## Kontho PDF Reader 0.6.0 Preview 1
+
+          This preview focuses on reading Bangla text from scanned or image-based PDF pages using OCR.
+
+          - Bangla, English, and Bangla + English OCR.
+          - Accurate-OCR read-aloud with page-ahead scanning and optional continuous reading.
+          - Configurable OCR text cache and reading-position controls.
+          - Keep-screen-awake option and confirmation before stopping active continuous OCR narration from the player or reader Back action.
+
+          **Important:** This APK is built from the Gradle debug variant and uses the debug signing key. It is intended for manual installation and testing, not for Google Play distribution. Bangla voice quality depends on the TTS engine and voice installed on the device. OCR accuracy varies with page quality and layout. The successful CI build does not replace physical-device testing.
+          NOTES
+
+          gh release create "v0.6.0-preview.1" \
+            "Kontho-PDF-Reader-v0.6.0-preview.1.apk" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "Kontho PDF Reader 0.6.0 Preview 1" \
+            --prerelease \
+            --notes-file release-notes.md
