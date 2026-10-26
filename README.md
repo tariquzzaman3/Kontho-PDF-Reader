@@ -19,7 +19,7 @@ Kontho (কণ্ঠ) is an Android application built with Kotlin for reading Ba
 - Uses the Android Text-to-Speech (TTS) engine to speak selectable PDF text or OCR-recognized text.
 - Requests a Bangla voice for Bangla OCR when configured; available voices depend on the TTS engine installed on the device.
 - Provides controls for reading speed and voice pitch, plus play, pause/resume, stop, restart, and close.
-- Can scan the next OCR page while the current page is being read and continue to the next page automatically when that option is enabled.
+- Can scan the next OCR page while the current page is being read and continue to the next page automatically when that option is enabled. When continuous OCR reading is active, closing the playback controls or leaving the PDF prompts for confirmation before stopping narration.
 - Displays the page currently being narrated and the reading progress through the book.
 - Offers options to skip standalone page numbers and repeated page-header or footer lines that match the PDF filename. These filters are best-effort and may not identify every printed page number or title.
 
@@ -28,7 +28,7 @@ Kontho (কণ্ঠ) is an Android application built with Kotlin for reading Ba
 - Import PDFs through Android's document picker or select a folder for the library to scan.
 - Browse books in grid or list view, sort by name or modification date, and choose a page for a book's thumbnail.
 - Read pages in one continuous vertical scroll and use pinch gestures or the reader menu to adjust zoom.
-- Rotate the reading screen, jump to a page, share a PDF, print it, or save a copy.
+- Rotate the reading screen, keep the display awake while a PDF is open, jump to a page, share a PDF, print it, or save a copy.
 - Use light, dark, or system appearance and choose English or বাংলা for the app interface.
 
 ### OCR cache and preferences
