@@ -538,7 +538,7 @@ class SettingsActivity : ComponentActivity() {
             chooseCache.launch(null)
         }
         addRow(label("About storage access", "স্টোরেজ সম্পর্কে"), label("Android asks you to grant access to a folder. Choose phone memory or an SD card in the folder picker.", "Android ফোল্ডারের অনুমতি চাইবে। ফোল্ডার বাছাইয়ের সময় ফোন মেমোরি বা SD কার্ড নির্বাচন করুন।")) {
-            AlertDialog.Builder(this).setMessage(label("Kontho scans the folder you grant access to each time the app opens. Android does not allow unrestricted scanning of every location by default. OCR text is kept in app storage and controlled by the OCR text-cache limit above. The selected folder is reserved for future generated audio/cache files.", "অ্যাপ খোলার সময় অনুমতিপ্রাপ্ত ফোল্ডারটি স্ক্যান করা হয়। Android ডিফল্টভাবে সব জায়গা অবাধে স্ক্যান করতে দেয় না। ভবিষ্যতে তৈরি অডিও/ক্যাশ ফাইলের জন্য ফোল্ডারটি সংরক্ষণ করা হয়; এই সংস্করণে এখনো অডিও ক্যাশ তৈরি হয় না।"))
+            AlertDialog.Builder(this).setMessage(label("Kontho scans the folder you grant access to each time the app opens. Android does not allow unrestricted scanning of every location by default. OCR text is kept in app storage and controlled by the OCR text-cache limit above. The selected folder is reserved for future generated audio/cache files.", "অ্যাপ খোলার সময় অনুমতিপ্রাপ্ত ফোল্ডারটি স্ক্যান করা হয়। Android ডিফল্টভাবে সব জায়গা অবাধে স্ক্যান করতে দেয় না। OCR লেখার ক্যাশ অ্যাপের নিজস্ব স্টোরেজে থাকে এবং উপরের সীমা দিয়ে নিয়ন্ত্রিত হয়। নির্বাচিত ফোল্ডারটি ভবিষ্যতে তৈরি অডিও/ক্যাশ ফাইলের জন্য রাখা হয়েছে।"))
                 .setPositiveButton(label("OK", "ঠিক আছে"), null).show()
         }
 
