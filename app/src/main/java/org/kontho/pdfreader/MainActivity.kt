@@ -1323,7 +1323,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
         addAction(label("Read aloud", "পড়ে শোনান"),
             { startDeviceDefaultReadAloud() }, { showSpeechSettings() })
-        addAction(label("Read aloud · Slow & steady", "ধীরে ও স্পষ্টভাবে পড়ে শোনান"),
+        addAction(label("Read aloud · Accurate OCR", "নির্ভুল OCR দিয়ে পড়ে শোনান"),
             { startOcrReadAloud() }, { showSpeechSettings() })
         val pageJumpRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -1393,6 +1393,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         val zoomTitle = TextView(this).apply {
             text = label("Zoom", "জুম")
             textSize = 15f
+            gravity = Gravity.CENTER_VERTICAL
             setTextColor(primaryTextColor)
         }
         zoomRow.addView(zoomTitle, LinearLayout.LayoutParams(0, dp(44), 1f))
@@ -1614,6 +1615,16 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             if (language) "পড়ার অবস্থান দেখান" else "Show reading position",
             "show_reading_position", true
         )
+        val skipPageNumbers = option(
+            if (language) "পড়ে শোনানোর সময় পৃষ্ঠা নম্বর বাদ দিন" else "Skip page numbers when reading aloud",
+            "read_aloud_skip_page_numbers", true,
+            if (language) "পাতার শুরু বা শেষে থাকা একক পৃষ্ঠা নম্বর বাদ দেওয়ার চেষ্টা করবে।" else "Attempts to remove standalone page numbers near the beginning or end of a page."
+        )
+        val skipRepeatedBookTitle = option(
+            if (language) "প্রতি পাতায় বারবার আসা বইয়ের নাম বাদ দিন" else "Skip repeated book title on each page",
+            "read_aloud_skip_book_title", true,
+            if (language) "পাতার শুরু বা শেষে বইয়ের নামের মতো থাকা লাইন বাদ দেওয়ার চেষ্টা করবে।" else "Attempts to remove lines matching the book title near the beginning or end of each page."
+        )
         val keepCache = option(
             if (language) "বই মুছে ফেলা পর্যন্ত OCR ক্যাশ রাখুন" else "Keep OCR cache until the book is deleted",
             "ocr_keep_cache", true,
@@ -1663,6 +1674,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                     .putBoolean("ocr_continue_next_page", continuePages.isChecked)
                     .putBoolean("read_aloud_background", backgroundAudio.isChecked)
                     .putBoolean("show_reading_position", showPosition.isChecked)
+                    .putBoolean("read_aloud_skip_page_numbers", skipPageNumbers.isChecked)
+                    .putBoolean("read_aloud_skip_book_title", skipRepeatedBookTitle.isChecked)
                     .putBoolean("ocr_keep_cache", keepCache.isChecked)
                     .apply()
                 tts?.setSpeechRate(rateSetting)
@@ -2086,8 +2099,58 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         }
     }
 
+    private fun cleanNarrationPageText(text: String): String {
+        val lines = text.lines().map { it.trim() }.toMutableList()
+        if (lines.isEmpty()) return text.trim()
+
+        val bookTitle = currentBook?.name
+            ?.substringBeforeLast('.', missingDelimiterValue = currentBook?.name ?: "")
+            ?.trim()
+            ?.takeIf { it.length >= 3 }
+        val maxHeaderLines = minOf(3, lines.size)
+        val maxFooterLines = minOf(3, lines.size)
+
+        if (preferences.getBoolean("read_aloud_skip_book_title", true) && bookTitle != null) {
+            for (index in 0 until maxHeaderLines) {
+                if (lines[index].isNotBlank() && isLikelyBookTitle(lines[index], bookTitle)) {
+                    lines[index] = ""
+                }
+            }
+            for (index in (lines.size - maxFooterLines).coerceAtLeast(0) until lines.size) {
+                if (lines[index].isNotBlank() && isLikelyBookTitle(lines[index], bookTitle)) {
+                    lines[index] = ""
+                }
+            }
+        }
+
+        if (preferences.getBoolean("read_aloud_skip_page_numbers", true)) {
+            val pageNumberPattern = Regex(
+                """^[\[({\-–—•·\s]*\d{1,5}[\])}\-–—•·\s]*$"""
+            )
+            for (index in 0 until maxHeaderLines) {
+                if (pageNumberPattern.matches(lines[index])) lines[index] = ""
+            }
+            for (index in (lines.size - maxFooterLines).coerceAtLeast(0) until lines.size) {
+                if (pageNumberPattern.matches(lines[index])) lines[index] = ""
+            }
+        }
+        return lines.joinToString("\n").replace(Regex("\n{3,}"), "\n\n").trim()
+    }
+
+    private fun isLikelyBookTitle(line: String, bookTitle: String): Boolean {
+        fun normalize(value: String): String = value.lowercase(Locale.ROOT)
+            .replace(Regex("[^\\p{L}\\p{N}]+"), "")
+        val normalizedLine = normalize(line)
+        val normalizedTitle = normalize(bookTitle)
+        if (normalizedLine.isBlank() || normalizedTitle.isBlank()) return false
+        return normalizedLine == normalizedTitle ||
+            (normalizedLine.length >= 5 && normalizedTitle.contains(normalizedLine) &&
+                normalizedLine.length.toFloat() / normalizedTitle.length >= 0.65f)
+    }
+
     private fun speakTextOnCurrentPage(text: String, pageIndex: Int, mode: String) {
-        if (text.isBlank()) {
+        val narrationText = cleanNarrationPageText(text)
+        if (narrationText.isBlank()) {
             clearBusy()
             toast(if (mode == "ocr") "OCR found no readable text on this page." else "No selectable text on this page. Try Read aloud · Slow & steady.")
             showReaderOverlays()
@@ -2123,7 +2186,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         }
         speech.setSpeechRate(preferences.getFloat("narration_rate", 0.85f).coerceIn(0.5f, 1.5f))
         speech.setPitch(preferences.getFloat("narration_pitch", 1.0f).coerceIn(0.5f, 1.5f))
-        val segments = splitNarrationText(text)
+        val segments = splitNarrationText(narrationText)
         if (segments.isEmpty()) {
             clearBusy()
             toast("No readable text was found on this page.")
