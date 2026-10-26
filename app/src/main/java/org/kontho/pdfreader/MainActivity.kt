@@ -36,6 +36,7 @@ import android.view.ScaleGestureDetector
 import android.view.ViewConfiguration
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowManager
 import android.view.animation.LinearInterpolator
 import android.view.inputmethod.EditorInfo
 import android.widget.Button
@@ -99,6 +100,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private val queuedOcrPages = ConcurrentHashMap.newKeySet<String>()
     private var lastNarrationUtteranceId: String? = null
     private var lastNarrationMode = "device"
+    private var continuousNarrationSession = false
     private var showingLibrary = true
     private var settingsSnapshot = ""
     private var lastBookFolderUri: String? = null
@@ -228,6 +230,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     override fun onResume() {
         super.onResume()
         maybeCheckForUpdatesAutomatically()
+        applyKeepScreenAwakeFlag()
         val snapshot = currentSettingsSnapshot()
         val folderUri = preferences.getString(KEY_BOOK_FOLDER, null)
         val folderChanged = folderUri != lastBookFolderUri
@@ -288,6 +291,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         stopReaderNarration()
         releaseReaderBitmaps()
         showingLibrary = true
+        applyKeepScreenAwakeFlag()
         currentBook = null
         WindowCompat.setDecorFitsSystemWindows(window, false)
         window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_VISIBLE
@@ -720,6 +724,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             "light" -> false
             else -> (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
         }
+        applyKeepScreenAwakeFlag()
         WindowCompat.setDecorFitsSystemWindows(window, false)
         window.decorView.systemUiVisibility = (
             View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
@@ -844,10 +849,23 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             showReaderOverlays()
         }
         playbackButton("×", "Close playback controls") {
-            stopReaderNarration()
-            readerPlaybackPanel.visibility = View.GONE
-            mainHandler.removeCallbacks(hideReaderOverlaysRunnable)
-            mainHandler.postDelayed(hideReaderOverlaysRunnable, 2_000L)
+            val closePlayer = {
+                stopReaderNarration()
+                readerPlaybackPanel.visibility = View.GONE
+                mainHandler.removeCallbacks(hideReaderOverlaysRunnable)
+                mainHandler.postDelayed(hideReaderOverlaysRunnable, 2_000L)
+            }
+            if (shouldConfirmStoppingContinuousNarration()) {
+                confirmStoppingContinuousNarration(
+                    messageEn = "Continuous reading is enabled. Closing the player now will stop read-aloud. Do you want to stop it?",
+                    messageBn = "ধারাবাহিক পড়া চালু আছে। এখন প্লেয়ার বন্ধ করলে পড়ে শোনানো থেমে যাবে। আপনি কি পড়া থামাতে চান?",
+                    confirmEn = "Stop reading",
+                    confirmBn = "পড়া থামান",
+                    onConfirm = closePlayer
+                )
+            } else {
+                closePlayer()
+            }
         }
         root.addView(createProgressPanel(dark), FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT,
@@ -1070,6 +1088,15 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             val pageToRestore = currentPage
             val generation = ++readerGeneration
             buildContinuousPages(generation, pageToRestore)
+        }
+    }
+
+    private fun applyKeepScreenAwakeFlag() {
+        val keepAwake = !showingLibrary && preferences.getBoolean(KEY_KEEP_SCREEN_AWAKE, false)
+        if (keepAwake) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        } else {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         }
     }
 
@@ -1477,6 +1504,27 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             ViewGroup.LayoutParams.MATCH_PARENT, dp(1)
         ))
         addAction(label("Rotate screen", "স্ক্রিন ঘোরান"), { rotateReaderScreen() })
+        val keepScreenAwake = preferences.getBoolean(KEY_KEEP_SCREEN_AWAKE, false)
+        addAction(
+            label(
+                if (keepScreenAwake) "Keep screen awake ✓" else "Keep screen awake",
+                if (keepScreenAwake) "স্ক্রিন জাগিয়ে রাখুন ✓" else "স্ক্রিন জাগিয়ে রাখুন"
+            ),
+            {
+                val enabled = !preferences.getBoolean(KEY_KEEP_SCREEN_AWAKE, false)
+                preferences.edit().putBoolean(KEY_KEEP_SCREEN_AWAKE, enabled).apply()
+                applyKeepScreenAwakeFlag()
+                toast(
+                    if (preferences.getString("app_language", "en") == "bn") {
+                        if (enabled) "PDF খোলা থাকা অবস্থায় স্ক্রিন চালু থাকবে।"
+                        else "স্ক্রিন জাগিয়ে রাখার বিকল্প বন্ধ করা হয়েছে।"
+                    } else {
+                        if (enabled) "The screen will stay awake while a PDF is open."
+                        else "Keep screen awake is turned off."
+                    }
+                )
+            }
+        )
         addAction(label("Share PDF", "PDF শেয়ার করুন"), { shareCurrentBook() })
         addAction(label("Print PDF", "PDF প্রিন্ট করুন"), { printCurrentBook() })
         addAction(label("Download opened book…", "খোলা বই ডাউনলোড…"), {
@@ -1837,6 +1885,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         if (!continueRun) stopReaderNarration()
         val requestedPage = pageIndex.coerceIn(0, (pageCount - 1).coerceAtLeast(0))
         lastNarrationMode = "ocr"
+        continuousNarrationSession = preferences.getBoolean("ocr_continue_next_page", true)
         narrationPageIndex = requestedPage
         if (currentPage != requestedPage) showPage(requestedPage)
         updateReadingPosition(requestedPage, false)
@@ -1870,6 +1919,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             } catch (error: Exception) {
                 mainHandler.post {
                     if (generation == readerGeneration && currentBook?.uri == uri) {
+                        continuousNarrationSession = false
                         clearBusy()
                         Toast.makeText(
                             this,
@@ -2151,17 +2201,22 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private fun speakTextOnCurrentPage(text: String, pageIndex: Int, mode: String) {
         val narrationText = cleanNarrationPageText(text)
         if (narrationText.isBlank()) {
+            if (mode == "ocr") continuousNarrationSession = false
             clearBusy()
             toast(if (mode == "ocr") "OCR found no readable text on this page." else "No selectable text on this page. Try Read aloud · Accurate OCR.")
             showReaderOverlays()
             return
         }
         if (!ttsReady) {
+            if (mode == "ocr") continuousNarrationSession = false
             clearBusy()
             toast("Speech engine is still starting. Please try again.")
             return
         }
-        val speech = tts ?: return
+        val speech = tts ?: run {
+            if (mode == "ocr") continuousNarrationSession = false
+            return
+        }
         val defaultLocale = Locale.getDefault()
         val preferredLocale = if (mode == "ocr") {
             when (preferences.getString("ocr_language", "ben") ?: "ben") {
@@ -2177,6 +2232,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             usingDefaultVoice = localeResult >= TextToSpeech.LANG_AVAILABLE
         }
         if (localeResult < TextToSpeech.LANG_AVAILABLE) {
+            if (mode == "ocr") continuousNarrationSession = false
             clearBusy()
             toast("The selected speech voice is not available. Open Android text-to-speech settings to install a voice.")
             return
@@ -2188,6 +2244,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         speech.setPitch(preferences.getFloat("narration_pitch", 1.0f).coerceIn(0.5f, 1.5f))
         val segments = splitNarrationText(narrationText)
         if (segments.isEmpty()) {
+            if (mode == "ocr") continuousNarrationSession = false
             clearBusy()
             toast("No readable text was found on this page.")
             return
@@ -2294,6 +2351,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         tts?.stop()
         isNarrating = false
         narrationPaused = false
+        continuousNarrationSession = false
         narrationSegments = emptyList()
         narrationCurrentSegmentIndex = 0
         lastNarrationUtteranceId = null
@@ -2352,6 +2410,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                             if (continueToNext) {
                                 startOcrReadAloud(nextPage, continueRun = true)
                             } else {
+                                continuousNarrationSession = false
                                 showReaderOverlays()
                             }
                         }
@@ -2365,6 +2424,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                             if (!narrationPaused) {
                                 isNarrating = false
                                 narrationPaused = false
+                                continuousNarrationSession = false
                                 lastNarrationUtteranceId = null
                                 if (::readerPauseButton.isInitialized) readerPauseButton.text = "▶"
                                 showReaderOverlays()
@@ -2638,6 +2698,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         mainHandler.removeCallbacks(hideReaderOverlaysRunnable)
         progressAnimator?.cancel()
         progressAnimator = null
+        window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         tts?.stop()
         tts?.shutdown()
         releaseReaderBitmaps()
@@ -2654,18 +2715,54 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         super.onStop()
     }
 
+    private fun shouldConfirmStoppingContinuousNarration(): Boolean {
+        return lastNarrationMode == "ocr" &&
+            preferences.getBoolean("ocr_continue_next_page", true) &&
+            (isNarrating || narrationPaused || continuousNarrationSession)
+    }
+
+    private fun confirmStoppingContinuousNarration(
+        messageEn: String,
+        messageBn: String,
+        confirmEn: String,
+        confirmBn: String,
+        onConfirm: () -> Unit
+    ) {
+        val isBangla = preferences.getString("app_language", "en") == "bn"
+        AlertDialog.Builder(this)
+            .setTitle(if (isBangla) "ধারাবাহিক পড়া চলছে" else "Continuous reading is active")
+            .setMessage(if (isBangla) messageBn else messageEn)
+            .setNegativeButton(if (isBangla) "পড়া চালিয়ে যান" else "Keep reading", null)
+            .setPositiveButton(if (isBangla) confirmBn else confirmEn) { _, _ -> onConfirm() }
+            .show()
+    }
+
+    private fun leaveCurrentPdf() {
+        val uri = currentBook?.uri
+        if (uri != null && !preferences.getBoolean("ocr_keep_cache", true)) {
+            removeOcrCacheForUri(uri)
+        }
+        stopReaderNarration()
+        showLibrary()
+        if (pendingFolderScan) {
+            pendingFolderScan = false
+            refreshLibrary()
+        }
+    }
+
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
         if (!showingLibrary) {
-            val uri = currentBook?.uri
-            if (uri != null && !preferences.getBoolean("ocr_keep_cache", true)) {
-                removeOcrCacheForUri(uri)
-            }
-            stopReaderNarration()
-            showLibrary()
-            if (pendingFolderScan) {
-                pendingFolderScan = false
-                refreshLibrary()
+            if (shouldConfirmStoppingContinuousNarration()) {
+                confirmStoppingContinuousNarration(
+                    messageEn = "Continuous reading is enabled. Leaving this PDF now will stop read-aloud. Do you want to leave the reader?",
+                    messageBn = "ধারাবাহিক পড়া চালু আছে। এখন এই PDF থেকে বের হলে পড়ে শোনানো থেমে যাবে। আপনি কি রিডার থেকে বের হতে চান?",
+                    confirmEn = "Stop and leave PDF",
+                    confirmBn = "থামিয়ে PDF বন্ধ করুন",
+                    onConfirm = { leaveCurrentPdf() }
+                )
+            } else {
+                leaveCurrentPdf()
             }
         } else {
             super.onBackPressed()
@@ -2679,5 +2776,6 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     companion object {
         private const val KEY_BOOK_FOLDER = "book_folder_uri"
         private const val KEY_RECENT_BOOKS = "recent_books"
+        private const val KEY_KEEP_SCREEN_AWAKE = "keep_screen_awake"
     }
 }
