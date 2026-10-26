@@ -21,7 +21,9 @@ The Settings gear keeps these preferences available afterward, plus grid-column 
 - Open a book in immersive reading mode. The device status bar stays visible for the clock and battery; navigation controls hide while reading. All PDF pages flow vertically in one continuous scroll.
 - Two-finger pinch zoom applies to every page together. The zoom controls are available in the reader menu; zooming does not affect the library.
 - The top-right glass-style three-dot menu and bottom-center playback controls fade after two seconds. Scrolling does not reveal these controls.
-- Reader menu actions include orientation rotation, Read aloud with voice speed/pitch and a shortcut to Android TTS settings, OCR read aloud and language settings, saving a copy of the open PDF, inline page navigation, and cover selection.
+- Reader menu actions include orientation rotation, regular Read aloud, and Read aloud · Slow & steady for scanned books, with read-aloud, OCR language, and Android TTS settings.
+- Slow & steady OCR narration pre-scans the next page while the current page is being spoken, then automatically continues to the next page when enabled. The playback controls show the spoken page and book progress percentage.
+- Playback settings let readers choose page pre-scanning, automatic next-page narration, reading-position visibility, OCR text-cache retention, and background playback. Background playback can continue while Android keeps the app process alive; force-closing the app or having Android kill its process stops playback.
 - Playback controls include play, pause/resume, stop, restart, and close.
 - A small green progress bar displays brief status messages when scanning books, rendering pages, preparing speech, downloading OCR models, scanning OCR, or saving a copy.
 
@@ -29,7 +31,9 @@ The Settings gear keeps these preferences available afterward, plus grid-column 
 
 OCR uses the open-source Tesseract4Android engine. Bengali and Bengali+English selections prefer the official `tesseract-ocr/tessdata_best` models for improved recognition; English-only uses `tessdata_fast` for speed. A Bengali model download requires an internet connection on first use, while later scans work locally. If the improved model cannot be downloaded but the earlier fast model is already cached, Kontho falls back to that cached model.
 
-Each scanned page is rendered in print mode at OCR-friendly resolution and recognized with automatic page segmentation, with a sparse-text retry for pages containing very little text (such as title pages). OCR runs one page at a time to limit memory use. New OCR results use a versioned cache so earlier, potentially incomplete scans are not reused after the recognition improvements. Use the OCR gear to select Bengali, English, or both, or clear the OCR text cache.
+Each scanned page is rendered in print mode at OCR-friendly resolution and recognized with automatic page segmentation, with a sparse-text retry for pages containing very little text (such as title pages). OCR runs one page at a time to limit memory use. New OCR results use a versioned cache so earlier, potentially incomplete scans are not reused after the recognition improvements.
+
+Recognized OCR text is kept in a persistent app-private cache (default limit: 50 MB). Settings lets users choose 10, 25, 50, 100, 250, 500 MB, or no limit. When the cap is reached, older scanned pages are removed first and can be scanned again when needed. Users can keep scanned text until the source PDF is deleted or clear it when leaving the book. Downloaded OCR language models use separate storage. The Read aloud · Slow & steady settings control next-page pre-scanning, automatic continuation, and reading-position visibility; its OCR options also allow choosing Bengali, English, or both and clearing the cache.
 
 ## Speech details
 
