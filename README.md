@@ -22,7 +22,7 @@ The Settings gear keeps these preferences available afterward, plus grid-column 
 - Two-finger pinch zoom applies to every page together. The zoom controls are available in the reader menu; zooming does not affect the library.
 - The top-right glass-style three-dot menu fades after two seconds; playback controls and the reading-position indicator remain visible during active or paused narration. Scrolling does not reveal the menu.
 - Reader menu actions include orientation rotation, regular Read aloud, and Read aloud · Accurate OCR for scanned books, with read-aloud, OCR language, and Android TTS settings.
-- Slow & steady OCR narration pre-scans the next page while the current page is being spoken, then automatically continues to the next page when enabled. The playback controls show the spoken page and book progress percentage.
+- Accurate OCR narration pre-scans the next page while the current page is being spoken, then automatically continues to the next page when enabled. The playback controls show the spoken page and book progress percentage.
 - Playback settings let readers choose page pre-scanning, automatic next-page narration, reading-position visibility, skipping standalone page numbers, skipping repeated page-header/footer lines matching the PDF filename, OCR text-cache retention, and background playback. Background playback can continue while Android keeps the app process alive; force-closing the app or having Android kill its process stops playback.
 - Playback controls include play, pause/resume, stop, restart, and close.
 - A small green progress bar displays brief status messages when scanning books, rendering pages, preparing speech, downloading OCR models, scanning OCR, or saving a copy.
