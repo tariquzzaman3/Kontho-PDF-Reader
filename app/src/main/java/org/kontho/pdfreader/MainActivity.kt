@@ -2089,7 +2089,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private fun speakTextOnCurrentPage(text: String, pageIndex: Int, mode: String) {
         if (text.isBlank()) {
             clearBusy()
-            toast(if (mode == "ocr") "OCR found no readable text on this page." else "No selectable text on this page. Try Read aloud (OCR).")
+            toast(if (mode == "ocr") "OCR found no readable text on this page." else "No selectable text on this page. Try Read aloud · Slow & steady.")
             showReaderOverlays()
             return
         }
