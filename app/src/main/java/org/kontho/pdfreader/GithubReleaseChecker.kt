@@ -24,8 +24,8 @@ data class UpdateCheckResult(
  */
 object GithubReleaseChecker {
     const val RELEASES_URL = "https://github.com/tariquzzaman3/Kontho-PDF-Reader/releases"
-    private const val LATEST_RELEASE_API =
-        "https://api.github.com/repos/tariquzzaman3/Kontho-PDF-Reader/releases/latest"
+    private const val RELEASES_API =
+        "https://api.github.com/repos/tariquzzaman3/Kontho-PDF-Reader/releases?per_page=10"
 
     fun check(context: Context, callback: (UpdateCheckResult) -> Unit) {
         val appContext = context.applicationContext
@@ -36,7 +36,7 @@ object GithubReleaseChecker {
                 "0.0.0"
             }
             val result = try {
-                val connection = (URL(LATEST_RELEASE_API).openConnection() as HttpURLConnection).apply {
+                val connection = (URL(RELEASES_API).openConnection() as HttpURLConnection).apply {
                     connectTimeout = 8_000
                     readTimeout = 8_000
                     requestMethod = "GET"
@@ -48,12 +48,16 @@ object GithubReleaseChecker {
                     if (code != HttpURLConnection.HTTP_OK) {
                         throw IOException("GitHub returned HTTP $code.")
                     }
-                    val json = connection.inputStream.bufferedReader(Charsets.UTF_8).use {
-                        JSONObject(it.readText())
+                    val releases = connection.inputStream.bufferedReader(Charsets.UTF_8).use {
+                        org.json.JSONArray(it.readText())
                     }
-                    val latest = json.optString("tag_name").ifBlank { json.optString("name") }.trim()
+                    val release = (0 until releases.length())
+                        .mapNotNull { index -> releases.optJSONObject(index) }
+                        .firstOrNull { candidate -> !candidate.optBoolean("draft", false) }
+                        ?: throw IOException("No published GitHub releases were found.")
+                    val latest = release.optString("tag_name").ifBlank { release.optString("name") }.trim()
                     if (latest.isBlank()) throw IOException("The latest GitHub release did not include a version.")
-                    val url = json.optString("html_url").takeIf { it.startsWith("https://") }
+                    val url = release.optString("html_url").takeIf { it.startsWith("https://") }
                         ?: RELEASES_URL
                     UpdateCheckResult(installed, latest, url)
                 } finally {
