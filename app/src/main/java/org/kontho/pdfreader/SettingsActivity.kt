@@ -21,6 +21,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import android.net.Uri
+import java.io.File
 
 class SettingsActivity : ComponentActivity() {
     private val prefs by lazy { getSharedPreferences("kontho_library", MODE_PRIVATE) }
@@ -491,6 +492,42 @@ class SettingsActivity : ComponentActivity() {
                 .show()
         }
 
+        val cacheLimitChoices = intArrayOf(10, 25, 50, 100, 250, 500, 0)
+        val cacheLimitLabels = arrayOf(
+            "10 MB", "25 MB", "50 MB", "100 MB", "250 MB", "500 MB",
+            label("No limit", "সীমাহীন")
+        )
+        val savedCacheLimit = prefs.getInt("ocr_cache_limit_mb", 50)
+        val selectedCacheLimit = cacheLimitChoices.indexOf(savedCacheLimit).coerceAtLeast(0)
+        val cachedOcrBytes = ocrCacheUsageBytes()
+        val cacheUsageLabel = if (cachedOcrBytes < 1024L * 1024L) {
+            "${(cachedOcrBytes / 1024L).coerceAtLeast(0)} KB"
+        } else {
+            "${cachedOcrBytes / (1024L * 1024L)} MB"
+        }
+        val cacheLimitSummary = if (savedCacheLimit <= 0) {
+            label("$cacheUsageLabel used · No limit", "$cacheUsageLabel ব্যবহৃত · সীমাহীন")
+        } else {
+            label("$cacheUsageLabel used of $savedCacheLimit MB", "$savedCacheLimit MB-এর মধ্যে $cacheUsageLabel ব্যবহৃত")
+        }
+        addRow(label("OCR text cache limit", "OCR লেখার ক্যাশ সীমা"), cacheLimitSummary) {
+            AlertDialog.Builder(this)
+                .setTitle(label("Maximum OCR text cache", "OCR লেখার ক্যাশের সর্বোচ্চ আকার"))
+                .setSingleChoiceItems(cacheLimitLabels, selectedCacheLimit) { dialog, which ->
+                    val limitMb = cacheLimitChoices[which]
+                    prefs.edit().putInt("ocr_cache_limit_mb", limitMb).apply()
+                    trimOcrCache(limitMb)
+                    dialog.dismiss()
+                    render()
+                }
+                .setMessage(label(
+                    "This limit applies to recognized OCR text only. PDF files and downloaded language models use separate storage. When the limit is reached, older scanned pages are removed first and can be scanned again when needed.",
+                    "এই সীমা শুধু OCR-এ শনাক্ত করা লেখার জন্য। PDF এবং ডাউনলোড করা ভাষার মডেল আলাদা জায়গায় থাকে। সীমা পূর্ণ হলে পুরোনো স্ক্যান আগে মুছে যাবে; দরকার হলে আবার স্ক্যান করা যাবে।"
+                ))
+                .setNegativeButton(label("Cancel", "বাতিল"), null)
+                .show()
+        }
+
         val booksFolder = prefs.getString("book_folder_uri", null)
         addRow(label("Books folder", "বইয়ের ফোল্ডার"), if (booksFolder == null) label("Not selected", "নির্বাচন করা হয়নি") else label("Selected · scan on app launch", "নির্বাচিত · অ্যাপ খোলার সময় স্ক্যান")) {
             chooseBooks.launch(null)
@@ -501,7 +538,7 @@ class SettingsActivity : ComponentActivity() {
             chooseCache.launch(null)
         }
         addRow(label("About storage access", "স্টোরেজ সম্পর্কে"), label("Android asks you to grant access to a folder. Choose phone memory or an SD card in the folder picker.", "Android ফোল্ডারের অনুমতি চাইবে। ফোল্ডার বাছাইয়ের সময় ফোন মেমোরি বা SD কার্ড নির্বাচন করুন।")) {
-            AlertDialog.Builder(this).setMessage(label("Kontho scans the folder you grant access to each time the app opens. Android does not allow unrestricted scanning of every location by default. The chosen cache folder is saved for future generated audio/cache files; this build does not yet generate audiobook cache files.", "অ্যাপ খোলার সময় অনুমতিপ্রাপ্ত ফোল্ডারটি স্ক্যান করা হয়। Android ডিফল্টভাবে সব জায়গা অবাধে স্ক্যান করতে দেয় না। ভবিষ্যতে তৈরি অডিও/ক্যাশ ফাইলের জন্য ফোল্ডারটি সংরক্ষণ করা হয়; এই সংস্করণে এখনো অডিও ক্যাশ তৈরি হয় না।"))
+            AlertDialog.Builder(this).setMessage(label("Kontho scans the folder you grant access to each time the app opens. Android does not allow unrestricted scanning of every location by default. OCR text is kept in app storage and controlled by the OCR text-cache limit above. The selected folder is reserved for future generated audio/cache files.", "অ্যাপ খোলার সময় অনুমতিপ্রাপ্ত ফোল্ডারটি স্ক্যান করা হয়। Android ডিফল্টভাবে সব জায়গা অবাধে স্ক্যান করতে দেয় না। ভবিষ্যতে তৈরি অডিও/ক্যাশ ফাইলের জন্য ফোল্ডারটি সংরক্ষণ করা হয়; এই সংস্করণে এখনো অডিও ক্যাশ তৈরি হয় না।"))
                 .setPositiveButton(label("OK", "ঠিক আছে"), null).show()
         }
 
@@ -554,6 +591,28 @@ class SettingsActivity : ComponentActivity() {
         root.addView(done, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         setContentView(root)
         installSafeInsets(root, dp(24), dp(20), dp(24), dp(20))
+    }
+
+    private fun ocrCacheUsageBytes(): Long {
+        val directory = File(filesDir, "ocr-cache")
+        if (!directory.isDirectory) return 0L
+        return directory.walkTopDown().filter { it.isFile && !it.name.endsWith(".part") }
+            .sumOf { it.length() }
+    }
+
+    private fun trimOcrCache(limitMb: Int) {
+        if (limitMb <= 0) return
+        val directory = File(filesDir, "ocr-cache")
+        if (!directory.isDirectory) return
+        val files = directory.walkTopDown().filter { it.isFile && !it.name.endsWith(".part") }
+            .sortedBy { it.lastModified() }.toList()
+        var totalBytes = files.sumOf { it.length() }
+        val limitBytes = limitMb.toLong() * 1024L * 1024L
+        for (file in files) {
+            if (totalBytes <= limitBytes) break
+            val size = file.length()
+            if (file.delete()) totalBytes -= size
+        }
     }
 
     private fun checkForUpdates(manual: Boolean) {
