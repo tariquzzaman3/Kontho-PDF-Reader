@@ -20,7 +20,7 @@ The Settings gear keeps these preferences available afterward, plus grid-column 
 - Book thumbnails can use a page chosen from the PDF. Long-press a book to open, rename, or delete it where Android's document provider allows those actions.
 - Open a book in immersive reading mode. The device status bar stays visible for the clock and battery; navigation controls hide while reading. All PDF pages flow vertically in one continuous scroll.
 - Two-finger pinch zoom applies to every page together. The zoom controls are available in the reader menu; zooming does not affect the library.
-- The top-right glass-style three-dot menu and bottom-center playback controls fade after two seconds. Scrolling does not reveal these controls.
+- The top-right glass-style three-dot menu fades after two seconds; playback controls and the reading-position indicator remain visible during active or paused narration. Scrolling does not reveal the menu.
 - Reader menu actions include orientation rotation, regular Read aloud, and Read aloud · Slow & steady for scanned books, with read-aloud, OCR language, and Android TTS settings.
 - Slow & steady OCR narration pre-scans the next page while the current page is being spoken, then automatically continues to the next page when enabled. The playback controls show the spoken page and book progress percentage.
 - Playback settings let readers choose page pre-scanning, automatic next-page narration, reading-position visibility, OCR text-cache retention, and background playback. Background playback can continue while Android keeps the app process alive; force-closing the app or having Android kill its process stops playback.
