@@ -984,7 +984,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
         ).apply { bottomMargin = dp(4) })
         progressPanel.addView(progressBar, LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, dp(9)
+            ViewGroup.LayoutParams.MATCH_PARENT, dp(12)
         ))
         return progressPanel
     }
@@ -997,7 +997,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             if (percent == null) {
                 if (progressAnimator?.isRunning != true) {
                     progressAnimator?.cancel()
-                    progressAnimator = ValueAnimator.ofInt(18, 76, 18).apply {
+                    progressAnimator = ValueAnimator.ofInt(12, 100, 12).apply {
                         duration = 1_100L
                         repeatCount = ValueAnimator.INFINITE
                         interpolator = LinearInterpolator()
