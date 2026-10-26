@@ -6,6 +6,7 @@ import android.app.AlertDialog
 import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
+import android.content.res.ColorStateList
 import android.database.Cursor
 import android.graphics.Bitmap
 import android.graphics.Color
@@ -38,6 +39,7 @@ import android.view.ViewGroup
 import android.view.animation.LinearInterpolator
 import android.view.inputmethod.EditorInfo
 import android.widget.Button
+import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
@@ -91,8 +93,10 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private var isNarrating = false
     private var narrationPaused = false
     private var narrationCurrentSegmentIndex = 0
+    private var narrationPageIndex = 0
     private var narrationSegments: List<String> = emptyList()
     private var narrationRunId = 0
+    private val queuedOcrPages = ConcurrentHashMap.newKeySet<String>()
     private var lastNarrationUtteranceId: String? = null
     private var lastNarrationMode = "device"
     private var showingLibrary = true
@@ -109,6 +113,9 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private lateinit var readerMenuButton: TextView
     private var readerOptionsPopup: PopupWindow? = null
     private lateinit var readerPlaybackPanel: LinearLayout
+    private lateinit var readerPlaybackButtons: LinearLayout
+    private lateinit var readerPositionLabel: TextView
+    private lateinit var readerPositionProgress: ProgressBar
     private lateinit var readerPauseButton: TextView
     private lateinit var progressPanel: LinearLayout
     private lateinit var progressLabel: TextView
@@ -659,6 +666,10 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     }
 
     private fun openBook(book: Book) {
+        val previousUri = currentBook?.uri
+        if (previousUri != null && previousUri != book.uri &&
+            !preferences.getBoolean("ocr_keep_cache", true)
+        ) removeOcrCacheForUri(previousUri)
         showingLibrary = false
         currentBook = book
         currentPage = 0
@@ -784,13 +795,41 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         })
 
         readerPlaybackPanel = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
+            orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
             background = glassBackground()
-            setPadding(dp(5), dp(3), dp(5), dp(3))
+            setPadding(dp(9), dp(4), dp(9), dp(3))
             elevation = dp(8).toFloat()
             visibility = View.GONE
         }
+        readerPositionLabel = TextView(this).apply {
+            textSize = 11f
+            gravity = Gravity.CENTER
+            setTextColor(Color.WHITE)
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+        }
+        readerPlaybackPanel.addView(readerPositionLabel, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, dp(20)
+        ))
+        readerPositionProgress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+            max = 100
+            progress = 0
+            isIndeterminate = false
+            progressTintList = ColorStateList.valueOf(Color.rgb(98, 225, 164))
+            progressBackgroundTintList = ColorStateList.valueOf(Color.argb(90, 255, 255, 255))
+            setPadding(0, 0, 0, 0)
+        }
+        readerPlaybackPanel.addView(readerPositionProgress, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, dp(3)
+        ).apply { bottomMargin = dp(2) })
+        readerPlaybackButtons = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+        }
+        readerPlaybackPanel.addView(readerPlaybackButtons, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ))
         readerPauseButton = playbackButton("▶", "Play or pause reading") {
             if (narrationPaused) resumeReaderNarration()
             else if (isNarrating) pauseReaderNarration()
@@ -897,7 +936,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             isClickable = true
             isFocusable = true
             setOnClickListener { action() }
-            readerPlaybackPanel.addView(this, LinearLayout.LayoutParams(dp(48), dp(48)))
+            readerPlaybackButtons.addView(this, LinearLayout.LayoutParams(dp(48), dp(48)))
         }
     }
 
@@ -1211,7 +1250,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private fun hideReaderOverlays() {
         if (!::readerMenuButton.isInitialized) return
         readerMenuButton.visibility = View.GONE
-        readerPlaybackPanel.visibility = View.GONE
+        readerPlaybackPanel.visibility = if (isNarrating || narrationPaused) View.VISIBLE else View.GONE
     }
 
     private fun showReaderMenu(anchor: View) {
@@ -1284,8 +1323,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
         addAction(label("Read aloud", "পড়ে শোনান"),
             { startDeviceDefaultReadAloud() }, { showSpeechSettings() })
-        addAction(label("Read aloud (OCR)", "OCR দিয়ে পড়ে শোনান"),
-            { startOcrReadAloud() }, { showOcrSettings() })
+        addAction(label("Read aloud · Slow & steady", "ধীরে ও স্পষ্টভাবে পড়ে শোনান"),
+            { startOcrReadAloud() }, { showSpeechSettings() })
         val pageJumpRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -1490,39 +1529,117 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         val pitchValue = preferences.getFloat("narration_pitch", 1.0f).coerceIn(0.5f, 1.5f)
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(8), dp(20), dp(4))
+            setPadding(dp(18), dp(8), dp(18), dp(8))
         }
-        val rateLabel = TextView(this).apply { text = "Speed: ${"%.2f".format(Locale.US, rateValue)}×" }
+        val rateLabel = TextView(this).apply {
+            text = if (language) "পাঠের গতি" else "Reading speed"
+            textSize = 14f
+        }
+        val rateValueLabel = TextView(this).apply {
+            text = "${"%.2f".format(Locale.US, rateValue)}×"
+            textSize = 12f
+        }
         val rate = SeekBar(this).apply {
             max = 100
             progress = ((rateValue - 0.5f) * 100).roundToInt().coerceIn(0, 100)
         }
         rate.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                rateLabel.text = "Speed: ${"%.2f".format(Locale.US, 0.5f + progress / 100f)}×"
+                rateValueLabel.text = "${"%.2f".format(Locale.US, 0.5f + progress / 100f)}×"
             }
             override fun onStartTrackingTouch(seekBar: SeekBar?) {}
             override fun onStopTrackingTouch(seekBar: SeekBar?) {}
         })
-        val pitchLabel = TextView(this).apply { text = "Pitch: ${"%.2f".format(Locale.US, pitchValue)}×" }
+        val pitchLabel = TextView(this).apply {
+            text = if (language) "কণ্ঠের স্বর" else "Voice pitch"
+            textSize = 14f
+        }
+        val pitchValueLabel = TextView(this).apply {
+            text = "${"%.2f".format(Locale.US, pitchValue)}×"
+            textSize = 12f
+        }
         val pitch = SeekBar(this).apply {
             max = 100
             progress = ((pitchValue - 0.5f) * 100).roundToInt().coerceIn(0, 100)
         }
         pitch.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                pitchLabel.text = "Pitch: ${"%.2f".format(Locale.US, 0.5f + progress / 100f)}×"
+                pitchValueLabel.text = "${"%.2f".format(Locale.US, 0.5f + progress / 100f)}×"
             }
             override fun onStartTrackingTouch(seekBar: SeekBar?) {}
             override fun onStopTrackingTouch(seekBar: SeekBar?) {}
         })
+
+        fun option(title: String, key: String, defaultValue: Boolean, description: String? = null): CheckBox {
+            val checkbox = CheckBox(this).apply {
+                text = title
+                textSize = 13f
+                isChecked = preferences.getBoolean(key, defaultValue)
+                setPadding(0, dp(3), 0, dp(3))
+            }
+            root.addView(checkbox, ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            ))
+            if (description != null) {
+                root.addView(TextView(this).apply {
+                    text = description
+                    textSize = 11f
+                    alpha = 0.78f
+                    setPadding(dp(32), 0, 0, dp(4))
+                })
+            }
+            return checkbox
+        }
+
         root.addView(rateLabel)
+        root.addView(rateValueLabel)
         root.addView(rate)
         root.addView(pitchLabel)
+        root.addView(pitchValueLabel)
         root.addView(pitch)
+        val scanAhead = option(
+            if (language) "পরের পৃষ্ঠা আগে স্ক্যান করুন" else "Scan the next page ahead",
+            "ocr_prefetch_next_page", true
+        )
+        val continuePages = option(
+            if (language) "পরের পৃষ্ঠায় স্বয়ংক্রিয়ভাবে পড়া চালান" else "Continue automatically to the next page",
+            "ocr_continue_next_page", true
+        )
+        val backgroundAudio = option(
+            if (language) "অ্যাপ পেছনে গেলেও পড়া চালান" else "Keep reading when the app is in the background",
+            "read_aloud_background", false,
+            if (language) "অ্যাপ জোর করে বন্ধ করলে Android পড়া থামাতে পারে।" else "Android may stop playback if the app is force-closed or its process is killed."
+        )
+        val showPosition = option(
+            if (language) "পড়ার অবস্থান দেখান" else "Show reading position",
+            "show_reading_position", true
+        )
+        val keepCache = option(
+            if (language) "বই মুছে ফেলা পর্যন্ত OCR ক্যাশ রাখুন" else "Keep OCR cache until the book is deleted",
+            "ocr_keep_cache", true,
+            if (language) "বন্ধ করলে বই বন্ধ করার সময় সেই বইয়ের স্ক্যান মুছে যাবে।" else "When off, OCR text for a book is cleared when you leave that book."
+        )
+        val cacheHelp = TextView(this).apply {
+            text = if (language) {
+                "OCR লেখার ক্যাশের সর্বোচ্চ আকার সাধারণ সেটিংসে বদলানো যাবে। ভাষার মডেল আলাদা থাকে।"
+            } else {
+                "Set the maximum OCR text-cache size in Settings. Downloaded language models use separate storage."
+            }
+            textSize = 11f
+            alpha = 0.78f
+            setPadding(0, dp(4), 0, 0)
+        }
+        root.addView(cacheHelp)
+
+        val scroll = ScrollView(this).apply {
+            isFillViewport = false
+            addView(root, ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            ))
+        }
         val dialog = AlertDialog.Builder(this)
-            .setTitle(if (language) "ডিভাইসের ভয়েস সেটিংস" else "Device voice settings")
-            .setView(root)
+            .setTitle(if (language) "পড়ে শোনানোর সেটিংস" else "Read aloud settings")
+            .setView(scroll)
             .setNeutralButton(if (language) "ডিভাইসের TTS সেটিংস" else "Device TTS settings") { _, _ -> openDeviceTtsSettings() }
             .setNegativeButton(if (language) "বাতিল" else "Cancel", null)
             .setPositiveButton(if (language) "সংরক্ষণ" else "Save", null)
@@ -1534,10 +1651,16 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 preferences.edit()
                     .putFloat("narration_rate", rateSetting)
                     .putFloat("narration_pitch", pitchSetting)
+                    .putBoolean("ocr_prefetch_next_page", scanAhead.isChecked)
+                    .putBoolean("ocr_continue_next_page", continuePages.isChecked)
+                    .putBoolean("read_aloud_background", backgroundAudio.isChecked)
+                    .putBoolean("show_reading_position", showPosition.isChecked)
+                    .putBoolean("ocr_keep_cache", keepCache.isChecked)
                     .apply()
                 tts?.setSpeechRate(rateSetting)
                 tts?.setPitch(pitchSetting)
-                readerOptionsPopup?.dismiss()
+                updateReadingPosition(narrationPageIndex, false)
+                dialog.dismiss()
             }
         }
         dialog.show()
@@ -1576,8 +1699,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private fun clearOcrCache() {
         setBusy("Refreshing OCR cache…")
         worker.execute {
-            val folder = File(cacheDir, "ocr")
-            folder.deleteRecursively()
+            ocrCacheDirectory().deleteRecursively()
+            File(cacheDir, "ocr").deleteRecursively()
             ocrTextCache.clear()
             mainHandler.post {
                 clearBusy()
@@ -1685,18 +1808,21 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         }
     }
 
-    private fun startOcrReadAloud() {
+    private fun startOcrReadAloud(pageIndex: Int = currentPage, continueRun: Boolean = false) {
         if (pageCount <= 0 || currentBook == null) {
             toast("Open a PDF first.")
             return
         }
-        stopReaderNarration()
+        if (!continueRun) stopReaderNarration()
+        val requestedPage = pageIndex.coerceIn(0, (pageCount - 1).coerceAtLeast(0))
         lastNarrationMode = "ocr"
-        val requestedPage = currentPage
+        narrationPageIndex = requestedPage
+        if (currentPage != requestedPage) showPage(requestedPage)
+        updateReadingPosition(requestedPage, false)
         val generation = readerGeneration
         val uri = currentBook?.uri ?: return
         val language = preferences.getString("ocr_language", "ben") ?: "ben"
-        val cacheKey = "ocr-v2::${uri}#${requestedPage + 1}#${language}"
+        val cacheKey = ocrCacheKey(uri, requestedPage, language)
         val inMemory = ocrTextCache[cacheKey]
         if (inMemory != null) {
             speakTextOnCurrentPage(inMemory, requestedPage, "ocr")
@@ -1710,7 +1836,11 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 val recognizedText = cachedText?.takeIf { it.isNotBlank() }
                     ?: recognizePdfPage(uri, requestedPage, language)
                 cacheFile.parentFile?.mkdirs()
-                cacheFile.writeText(recognizedText, Charsets.UTF_8)
+                if (recognizedText.isNotBlank()) {
+                    cacheFile.writeText(recognizedText, Charsets.UTF_8)
+                    cacheFile.setLastModified(System.currentTimeMillis())
+                    enforceOcrCacheLimit(cacheFile)
+                }
                 ocrTextCache[cacheKey] = recognizedText
                 mainHandler.post {
                     if (generation != readerGeneration || currentBook?.uri != uri || showingLibrary) return@post
@@ -1731,14 +1861,81 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         }
     }
 
+    private fun ocrCacheKey(uri: Uri, pageIndex: Int, language: String): String =
+        "ocr-v3::${uri}#${pageIndex + 1}#${language}"
+
+    private fun ocrCacheDirectory(): File = File(filesDir, "ocr-cache")
+
     private fun ocrCacheFile(uri: Uri, pageIndex: Int, language: String): File =
-        File(File(cacheDir, "ocr"), "ocr_v2_${uri.toString().hashCode()}_page_${pageIndex + 1}_${language.replace('+', '_')}.txt")
+        File(ocrCacheDirectory(), "ocr_v3_${uri.toString().hashCode()}_page_${pageIndex + 1}_${language.replace('+', '_')}.txt")
+
+    private fun prefetchNextOcrPage(pageIndex: Int, uri: Uri, language: String) {
+        if (!preferences.getBoolean("ocr_prefetch_next_page", true)) return
+        val nextPage = pageIndex + 1
+        if (nextPage !in 0 until pageCount) return
+        val cacheKey = ocrCacheKey(uri, nextPage, language)
+        if (ocrTextCache.containsKey(cacheKey) || !queuedOcrPages.add(cacheKey)) return
+        worker.execute {
+            try {
+                val cacheFile = ocrCacheFile(uri, nextPage, language)
+                val savedText = if (cacheFile.isFile) cacheFile.readText(Charsets.UTF_8) else null
+                val recognizedText = savedText?.takeIf { it.isNotBlank() }
+                    ?: recognizePdfPage(uri, nextPage, language, showProgress = false)
+                if (recognizedText.isNotBlank()) {
+                    cacheFile.parentFile?.mkdirs()
+                    cacheFile.writeText(recognizedText, Charsets.UTF_8)
+                    cacheFile.setLastModified(System.currentTimeMillis())
+                    enforceOcrCacheLimit(cacheFile)
+                    ocrTextCache[cacheKey] = recognizedText
+                }
+            } catch (_: Exception) {
+                // A prefetch failure is non-fatal; the page will be scanned on demand.
+            } finally {
+                queuedOcrPages.remove(cacheKey)
+            }
+        }
+    }
+
+    private fun enforceOcrCacheLimit(protectedFile: File? = null) {
+        val limitMb = preferences.getInt("ocr_cache_limit_mb", 50)
+        if (limitMb <= 0) return
+        val directory = ocrCacheDirectory()
+        if (!directory.exists()) return
+        val files = directory.walkTopDown().filter { it.isFile && !it.name.endsWith(".part") }
+            .sortedBy { it.lastModified() }.toList()
+        var totalBytes = files.sumOf { it.length() }
+        val limitBytes = limitMb.toLong() * 1024L * 1024L
+        for (file in files) {
+            if (totalBytes <= limitBytes) break
+            if (protectedFile != null && file.absolutePath == protectedFile.absolutePath) continue
+            val size = file.length()
+            if (file.delete()) totalBytes -= size
+        }
+    }
+
+    private fun removeOcrCacheForUri(uri: Uri) {
+        val hash = uri.toString().hashCode()
+        for (directory in listOf(ocrCacheDirectory(), File(cacheDir, "ocr"))) {
+            if (!directory.isDirectory) continue
+            directory.listFiles()?.filter { file ->
+                file.isFile && (file.name.startsWith("ocr_v3_${hash}_page_") ||
+                    file.name.startsWith("ocr_v2_${hash}_page_") ||
+                    file.name.startsWith("${hash}_page_"))
+            }?.forEach { it.delete() }
+        }
+        ocrTextCache.keys.filter { it.contains(uri.toString()) }.forEach { ocrTextCache.remove(it) }
+    }
 
     /**
      * Bengali/English OCR models download once on first OCR use. The page scan
      * itself runs locally with Tesseract and is cached for subsequent reading.
      */
-    private fun recognizePdfPage(uri: Uri, pageIndex: Int, language: String): String {
+    private fun recognizePdfPage(
+        uri: Uri,
+        pageIndex: Int,
+        language: String,
+        showProgress: Boolean = true
+    ): String {
         val dataRoot = ensureOcrModels(language)
         val dimensions = pageDimensions.getOrNull(pageIndex)
             ?: throw IOException("Page dimensions are not ready.")
@@ -1759,7 +1956,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 bitmap.eraseColor(Color.WHITE)
                 page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_PRINT)
             }
-            setBusy("Scanning OCR page ${pageIndex + 1}…")
+            if (showProgress) setBusy("Scanning OCR page ${pageIndex + 1}…")
             val tess = TessBaseAPI()
             try {
                 if (!tess.init(dataRoot.absolutePath, language, TessBaseAPI.OEM_LSTM_ONLY)) {
@@ -1922,13 +2119,41 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         }
 
         lastNarrationMode = mode
+        narrationPageIndex = pageIndex
+        updateReadingPosition(pageIndex, pageIndex != currentPage)
         narrationSegments = segments
         narrationCurrentSegmentIndex = 0
         narrationPaused = false
         isNarrating = true
         queueNarrationSegments(0)
+        if (mode == "ocr") {
+            val uri = currentBook?.uri
+            val language = preferences.getString("ocr_language", "ben") ?: "ben"
+            if (uri != null) prefetchNextOcrPage(pageIndex, uri, language)
+        }
         clearBusy()
         showReaderOverlays()
+    }
+
+    private fun updateReadingPosition(pageIndex: Int, scrollToPage: Boolean) {
+        narrationPageIndex = pageIndex.coerceIn(0, (pageCount - 1).coerceAtLeast(0))
+        val shownPage = narrationPageIndex + 1
+        val percent = if (pageCount > 0) (shownPage * 100f / pageCount).roundToInt() else 0
+        if (::readerPositionLabel.isInitialized) {
+            val bn = preferences.getString("app_language", "en") == "bn"
+            val show = preferences.getBoolean("show_reading_position", true)
+            readerPositionLabel.visibility = if (show) View.VISIBLE else View.GONE
+            readerPositionProgress.visibility = if (show) View.VISIBLE else View.GONE
+            readerPositionLabel.text = if (bn) {
+                "পড়া: পৃষ্ঠা ${shownPage} / ${pageCount} · ${percent}%"
+            } else {
+                "Reading: page ${shownPage} of ${pageCount} · ${percent}%"
+            }
+            readerPositionProgress.progress = percent.coerceIn(0, 100)
+        }
+        if (scrollToPage && !showingLibrary && narrationPageIndex != currentPage) {
+            showPage(narrationPageIndex)
+        }
     }
 
     private fun queueNarrationSegments(startIndex: Int) {
@@ -1985,8 +2210,9 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     }
 
     private fun restartReaderNarration() {
+        val pageToRestart = narrationPageIndex
         stopReaderNarration()
-        if (lastNarrationMode == "ocr") startOcrReadAloud() else startDeviceDefaultReadAloud()
+        if (lastNarrationMode == "ocr") startOcrReadAloud(pageToRestart) else startDeviceDefaultReadAloud()
     }
 
     private fun stopReaderNarration() {
@@ -2039,11 +2265,20 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 override fun onDone(utteranceId: String?) {
                     if (utteranceId != null && utteranceId == lastNarrationUtteranceId) {
                         mainHandler.post {
+                            if (utteranceId != lastNarrationUtteranceId) return@post
+                            val nextPage = narrationPageIndex + 1
+                            val continueToNext = lastNarrationMode == "ocr" &&
+                                preferences.getBoolean("ocr_continue_next_page", true) &&
+                                nextPage in 0 until pageCount && currentBook != null
                             isNarrating = false
                             narrationPaused = false
                             lastNarrationUtteranceId = null
                             if (::readerPauseButton.isInitialized) readerPauseButton.text = "▶"
-                            showReaderOverlays()
+                            if (continueToNext) {
+                                startOcrReadAloud(nextPage, continueRun = true)
+                            } else {
+                                showReaderOverlays()
+                            }
                         }
                     }
                 }
@@ -2223,7 +2458,11 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                     .setNegativeButton(if (bn) "বাতিল" else "Cancel", null)
                     .setPositiveButton(if (bn) "মুছুন" else "Delete") { _, _ ->
                         val success = try { DocumentFile.fromSingleUri(this, book.uri)?.delete() == true } catch (_: Exception) { false }
-                        if (success) { forgetRecentBook(book.uri); refreshLibrary() } else toast(if (bn) "ফাইলটি মুছতে অনুমতি নেই।" else "Android does not allow deleting this file. Check folder permissions.")
+                        if (success) {
+                            removeOcrCacheForUri(book.uri)
+                            forgetRecentBook(book.uri)
+                            refreshLibrary()
+                        } else toast(if (bn) "ফাইলটি মুছতে অনুমতি নেই।" else "Android does not allow deleting this file. Check folder permissions.")
                     }.show()
             }
         }.show()
@@ -2317,6 +2556,9 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     )
 
     override fun onDestroy() {
+        if (isFinishing && !preferences.getBoolean("ocr_keep_cache", true)) {
+            currentBook?.uri?.let { removeOcrCacheForUri(it) }
+        }
         readerGeneration++
         mainHandler.removeCallbacks(hideReaderOverlaysRunnable)
         progressAnimator?.cancel()
@@ -2330,9 +2572,21 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         super.onDestroy()
     }
 
+    override fun onStop() {
+        if (!preferences.getBoolean("read_aloud_background", false)) {
+            stopReaderNarration()
+        }
+        super.onStop()
+    }
+
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
         if (!showingLibrary) {
+            val uri = currentBook?.uri
+            if (uri != null && !preferences.getBoolean("ocr_keep_cache", true)) {
+                removeOcrCacheForUri(uri)
+            }
+            stopReaderNarration()
             showLibrary()
             if (pendingFolderScan) {
                 pendingFolderScan = false
