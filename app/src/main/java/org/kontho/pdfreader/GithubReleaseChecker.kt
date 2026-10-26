@@ -3,7 +3,6 @@ package org.kontho.pdfreader
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
-import org.json.JSONObject
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
