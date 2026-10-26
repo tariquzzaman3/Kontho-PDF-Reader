@@ -849,7 +849,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             showReaderOverlays()
         }
         playbackButton("×", "Close playback controls") {
-            val closePlayer = {
+            val closePlayer: () -> Unit = {
                 stopReaderNarration()
                 readerPlaybackPanel.visibility = View.GONE
                 mainHandler.removeCallbacks(hideReaderOverlaysRunnable)
