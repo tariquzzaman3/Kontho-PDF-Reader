@@ -2152,7 +2152,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         val narrationText = cleanNarrationPageText(text)
         if (narrationText.isBlank()) {
             clearBusy()
-            toast(if (mode == "ocr") "OCR found no readable text on this page." else "No selectable text on this page. Try Read aloud · Slow & steady.")
+            toast(if (mode == "ocr") "OCR found no readable text on this page." else "No selectable text on this page. Try Read aloud · Accurate OCR.")
             showReaderOverlays()
             return
         }
