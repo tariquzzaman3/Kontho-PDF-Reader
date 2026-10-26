@@ -1532,7 +1532,6 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             createPdfCopy.launch(if (name.endsWith(".pdf", true)) name else "$name.pdf")
         })
         addAction(label("Set current page as cover", "বর্তমান পৃষ্ঠাটি কভার করুন"), { saveCurrentPageAsCover() })
-        addAction(label("Choose cover page…", "কভার পৃষ্ঠা বাছুন…"), { showCoverPageDialog() })
         addAction(label("Settings", "সেটিংস"), {
             startActivity(Intent(this@MainActivity, SettingsActivity::class.java))
         }, dividerAfter = false)
@@ -1809,32 +1808,6 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         if (pageCount <= 0) return
         preferences.edit().putInt(coverPageKey(book.uri), currentPage).apply()
         toast("Book cover updated to page ${currentPage + 1}.")
-    }
-
-    private fun showCoverPageDialog() {
-        if (pageCount <= 0) return
-        val input = EditText(this).apply {
-            inputType = InputType.TYPE_CLASS_NUMBER
-            setText((currentPage + 1).toString())
-            selectAll()
-            hint = "Page number"
-        }
-        AlertDialog.Builder(this)
-            .setTitle("Choose book cover page")
-            .setMessage("Enter the PDF page number to use as the thumbnail in your library (1–$pageCount).")
-            .setView(input)
-            .setNegativeButton("Cancel", null)
-            .setPositiveButton("Set cover") { _, _ ->
-                val page = input.text.toString().toIntOrNull()
-                if (page == null || page !in 1..pageCount) {
-                    toast("Enter a page from 1 to $pageCount.")
-                } else {
-                    val book = currentBook ?: return@setPositiveButton
-                    preferences.edit().putInt(coverPageKey(book.uri), page - 1).apply()
-                    toast("Book cover updated to page $page.")
-                }
-            }
-            .show()
     }
 
     private fun readCurrentPage() {
