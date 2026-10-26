@@ -1630,6 +1630,14 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             setPadding(0, dp(4), 0, 0)
         }
         root.addView(cacheHelp)
+        val ocrOptionsButton = Button(this).apply {
+            text = if (language) "OCR ভাষা ও ক্যাশের বিকল্প" else "OCR language and cache options"
+            isAllCaps = false
+            setOnClickListener { showOcrSettings() }
+        }
+        root.addView(ocrOptionsButton, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ))
 
         val scroll = ScrollView(this).apply {
             isFillViewport = false
@@ -1864,7 +1872,11 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private fun ocrCacheKey(uri: Uri, pageIndex: Int, language: String): String =
         "ocr-v3::${uri}#${pageIndex + 1}#${language}"
 
-    private fun ocrCacheDirectory(): File = File(filesDir, "ocr-cache")
+    private fun ocrCacheDirectory(): File {
+        val legacyCache = File(cacheDir, "ocr")
+        if (legacyCache.isDirectory) legacyCache.deleteRecursively()
+        return File(filesDir, "ocr-cache")
+    }
 
     private fun ocrCacheFile(uri: Uri, pageIndex: Int, language: String): File =
         File(ocrCacheDirectory(), "ocr_v3_${uri.toString().hashCode()}_page_${pageIndex + 1}_${language.replace('+', '_')}.txt")
