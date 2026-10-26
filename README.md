@@ -1,66 +1,103 @@
 # Kontho PDF Reader
 
-Kontho is a Kotlin Android PDF reader for Bangla and English books, designed as a foundation for a Bangla audiobook app.
+**A Bangla-first Android PDF reader with OCR-based read-aloud for scanned and image-based PDFs.**
 
-## First-run setup
+Kontho (কণ্ঠ) is an Android application built with Kotlin for reading Bangla and English PDFs. Its main strength is recognizing Bangla text on scanned PDF pages—even when the page is stored as an image and does not contain selectable text—and reading the recognized content aloud.
 
-On first launch, a short step-by-step wizard presents:
-1. Language: বাংলা or English (shown with Bangladesh and UK flags).
-2. Theme: system, light, or dark.
-3. Library layout: list or grid.
-4. PDF folder: select the folder Kontho should scan.
+## Key Features
 
-The Settings gear keeps these preferences available afterward, plus grid-column count, sort order, narration pace, OCR language, and the future audio/cache destination.
+### Read Bangla scanned PDFs
 
-## Library and PDF reader
+- **OCR for image-based pages:** Recognizes text from scanned or picture-based PDF pages that ordinary text extraction cannot read.
+- **Recognition quality as a priority:** Bangla and Bangla + English OCR use Tesseract's `tessdata_best` models when available. English-only OCR uses `tessdata_fast` for quicker recognition.
+- **Three OCR language options:** Choose Bangla, English, or Bangla + English.
+- **On-device page recognition:** After the required language models have been downloaded, page recognition runs on the device. A first-time model download requires an internet connection.
+- **Page-by-page processing:** Each page is rendered at OCR-friendly resolution and processed separately to help control memory use. Sparse-text pages receive an additional recognition attempt.
 
-- The library header contains the app name and Settings gear; the Sort popup sits beneath it.
-- Choose list or grid, with grid size configured in Settings.
-- Pull down to rescan the chosen folder. Sorting is maintained, and returning to the app or rotating the device does not rescan the folder.
-- Book thumbnails can use a page chosen from the PDF. Long-press a book to open, rename, or delete it where Android's document provider allows those actions.
-- Open a book in immersive reading mode. The device status bar stays visible for the clock and battery; navigation controls hide while reading. All PDF pages flow vertically in one continuous scroll.
-- Two-finger pinch zoom applies to every page together. The zoom controls are available in the reader menu; zooming does not affect the library.
-- The top-right glass-style three-dot menu fades after two seconds; playback controls and the reading-position indicator remain visible during active or paused narration. Scrolling does not reveal the menu.
-- Reader menu actions include orientation rotation, regular Read aloud, and Read aloud · Accurate OCR for scanned books, with read-aloud, OCR language, and Android TTS settings.
-- Accurate OCR narration pre-scans the next page while the current page is being spoken, then automatically continues to the next page when enabled. The playback controls show the spoken page and book progress percentage.
-- Playback settings let readers choose page pre-scanning, automatic next-page narration, reading-position visibility, skipping standalone page numbers, skipping repeated page-header/footer lines matching the PDF filename, OCR text-cache retention, and background playback. Background playback can continue while Android keeps the app process alive; force-closing the app or having Android kill its process stops playback.
-- Playback controls include play, pause/resume, stop, restart, and close.
-- A small green progress bar displays brief status messages when scanning books, rendering pages, preparing speech, downloading OCR models, scanning OCR, or saving a copy.
+### Read aloud
 
-## OCR details
+- Uses the Android Text-to-Speech (TTS) engine to speak selectable PDF text or OCR-recognized text.
+- Requests a Bangla voice for Bangla OCR when configured; available voices depend on the TTS engine installed on the device.
+- Provides controls for reading speed and voice pitch, plus play, pause/resume, stop, restart, and close.
+- Can scan the next OCR page while the current page is being read and continue to the next page automatically when that option is enabled.
+- Displays the page currently being narrated and the reading progress through the book.
+- Offers options to skip standalone page numbers and repeated page-header or footer lines that match the PDF filename. These filters are best-effort and may not identify every printed page number or title.
 
-OCR uses the open-source Tesseract4Android engine. Bengali and Bengali+English selections prefer the official `tesseract-ocr/tessdata_best` models for improved recognition; English-only uses `tessdata_fast` for speed. A Bengali model download requires an internet connection on first use, while later scans work locally. If the improved model cannot be downloaded but the earlier fast model is already cached, Kontho falls back to that cached model.
+### PDF library and reader
 
-Each scanned page is rendered in print mode at OCR-friendly resolution and recognized with automatic page segmentation, with a sparse-text retry for pages containing very little text (such as title pages). OCR runs one page at a time to limit memory use. New OCR results use a versioned cache so earlier, potentially incomplete scans are not reused after the recognition improvements.
+- Import PDFs through Android's document picker or select a folder for the library to scan.
+- Browse books in grid or list view, sort by name or modification date, and choose a page for a book's thumbnail.
+- Read pages in one continuous vertical scroll and use pinch gestures or the reader menu to adjust zoom.
+- Rotate the reading screen, jump to a page, share a PDF, print it, or save a copy.
+- Use light, dark, or system appearance and choose English or বাংলা for the app interface.
 
-Recognized OCR text is kept in a persistent app-private cache (default limit: 50 MB). Settings lets users choose 10, 25, 50, 100, 250, 500 MB, or no limit. When the cap is reached, older scanned pages are removed first and can be scanned again when needed. Users can keep scanned text until the source PDF is deleted or clear it when leaving the book. Downloaded OCR language models use separate storage. The Read aloud · Accurate OCR settings control next-page pre-scanning, automatic continuation, and reading-position visibility; its OCR options also allow choosing Bengali, English, or both and clearing the cache.
+### OCR cache and preferences
 
-## Speech details
+- Saves recognized text in app-private storage so previously scanned pages can be reused.
+- Configures the OCR text-cache limit to 10, 25, 50, 100, 250, or 500 MB, or no limit. When the limit is reached, older cached pages are removed first.
+- Lets readers retain a book's OCR cache or clear it when leaving the book. OCR text cache and downloaded language models use separate storage.
+- Includes settings for next-page pre-scanning, automatic continuation, reading-position visibility, and background playback.
 
-Read aloud uses the Android Text-to-Speech engine and device-default locale. The voice, Bangla support, and quality depend on the engine installed on the phone. Rate and pitch can be adjusted from the voice settings. Paragraph pauses are inserted between short TTS segments. Pause/resume restarts the current paragraph because Android's TTS API does not provide a consistent universal pause operation.
+## Reading a scanned Bangla PDF
 
-Bengali OCR narration requests a Bengali TTS voice when configured. If the phone has no compatible Bengali voice installed, Kontho falls back to the device default and explains how to install a voice in Android TTS settings. A custom expressive AI voice still requires a separately selected, legally usable model and recordings for which the user has permission. Custom voice training and emotional acting are not included in this build.
+1. Open Kontho and select a PDF from the library, or use the PDF picker to open one.
+2. Open the reader menu and choose **Read aloud · Accurate OCR** for pages that are scans or images rather than selectable text.
+3. Open the read-aloud settings and choose **Bangla**, **English**, or **Bangla + English** to match the document.
+4. On first use of a language, connect to the internet so Kontho can download the required OCR model. Later recognition can run locally using the downloaded model.
+5. Start reading. Use the playback controls to pause, resume, restart the page, or stop. Enable next-page pre-scanning and automatic continuation for a more continuous listening experience.
 
-## Limitations
+For PDFs that already contain selectable text, use **Read aloud** instead. Text extraction can be quicker because it does not require OCR.
 
-- OCR accuracy depends on page quality and the trained model. Complex layouts, columns, small type, and low-resolution scans can be imperfect.
-- Large or encrypted PDFs may fail to render or extract.
-- Rename/delete depend on document-provider permissions.
-- The selected audio/cache folder is saved as a future destination; generated audiobook files are not created yet.
+## OCR and speech: what to expect
 
-## Build
+Kontho uses the open-source Tesseract4Android OCR engine. The app prioritizes higher-recognition-quality models for Bangla where possible, but OCR is not perfect. Results depend on scan resolution, contrast, page alignment, font size, and page layout. Some pages may require correction or a repeat scan.
 
-Uses JDK 17, Gradle 8.13, Android Gradle Plugin 8.13.2, Kotlin 2.0.21, Android SDK platform 36 and Tesseract4Android 4.9.0.
+Speech is produced by the Android TTS engine, not by a built-in AI voice. Bangla pronunciation and voice availability depend on the engine and voices installed on the device. If a compatible Bangla voice is unavailable, Kontho may use the device's default voice and prompt the reader to check Android TTS settings.
+
+## Privacy and storage
+
+- PDFs and recognized OCR text are handled in the app; Kontho does not upload them to an app-operated server.
+- Tesseract language models are downloaded from the public Tesseract repositories on GitHub when needed.
+- If automatic update checks are enabled, the app requests public GitHub release information. These requests do not contain PDF files or recognized OCR text.
+- Depending on the Android TTS engine and its settings, speech may be processed locally or by the TTS provider.
+- OCR text and language models are stored separately in app-private storage. You can clear the OCR text cache from the OCR options.
+
+See the [privacy policy](docs/privacy-policy.md) for more details.
+
+## Current limitations
+
+- Recognition can be less reliable for low-resolution scans, small text, unusual fonts, multi-column pages, and complex layouts.
+- The title-skip option compares likely header/footer lines with the PDF filename; it cannot reliably detect every printed book title.
+- Background playback depends on Android keeping the app process alive. Force-stopping the app or having the operating system terminate its process stops playback.
+- Kontho currently reads text aloud during playback; exporting narration as standalone audiobook files is not implemented.
+- Renaming and deleting PDFs depend on the permissions provided by Android and the selected document provider.
+
+## Build from source
+
+### Requirements
+
+- JDK 17
+- Gradle 8.13
+- Android SDK platform 36
+- An internet connection for Gradle dependencies and any OCR language models that are not already available
+
+### Build commands
+
+From the repository root, run:
 
 ```bash
 gradle --no-daemon clean assembleDebug bundleRelease
 ```
 
-Debug APK: `app/build/outputs/apk/debug/app-debug.apk`.
-Release Android App Bundle: `app/build/outputs/bundle/release/app-release.aab`.
+The expected output paths are:
 
-GitHub Actions builds both artifacts. Configure the four `ANDROID_UPLOAD_*` GitHub Actions secrets listed in `docs/GOOGLE_PLAY_RELEASE_CHECKLIST.md` to sign the release bundle in CI; without them, the AAB is unsigned and must not be uploaded to Play.
+- Debug APK: `app/build/outputs/apk/debug/app-debug.apk`
+- Release Android App Bundle: `app/build/outputs/bundle/release/app-release.aab`
 
-## Google Play preparation
+GitHub Actions is configured to build and upload both artifacts. A release bundle is signed only when the required `ANDROID_UPLOAD_*` GitHub Actions secrets are configured; an unsigned bundle must not be submitted to Google Play.
 
-See [the release checklist](docs/GOOGLE_PLAY_RELEASE_CHECKLIST.md) and [the privacy policy](docs/privacy-policy.md). The store listing, data-safety declarations, app signing enrollment, and final submission still need to be completed in Play Console.
+## Project status and release preparation
+
+Kontho is under active development. Before distributing a build, verify the latest GitHub Actions run and test the resulting APK on a physical Android device, especially with scanned Bangla PDFs and the intended Bangla TTS voice.
+
+For release requirements, see the [Google Play release checklist](docs/GOOGLE_PLAY_RELEASE_CHECKLIST.md). Store listing details, data-safety declarations, app signing, and final submission still need to be completed in Play Console.
