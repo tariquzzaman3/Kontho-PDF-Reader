@@ -25,6 +25,8 @@ This is a **debug-signed preview build for manual installation and testing**, no
 - Uses the Android Text-to-Speech (TTS) engine to speak selectable PDF text or OCR-recognized text.
 - Requests a Bangla voice for Bangla OCR when configured; available voices depend on the TTS engine installed on the device.
 - Provides controls for reading speed and voice pitch, plus play, pause/resume, stop, restart, and close.
+- Lets readers select and test Bangla voices reported by the installed Android TTS engine; saved choices are reused while reading Bangla text. Voice options and naturalness depend on the engine and installed voice data.
+- Provides a shortcut to Android Text-to-speech settings so readers can change engines or install available Bangla voice data. Network-required voices may need internet access.
 - Can scan the next OCR page while the current page is being read and continue to the next page automatically when that option is enabled. When continuous OCR reading is active, closing the playback controls or leaving the PDF prompts for confirmation before stopping narration.
 - Displays the page currently being narrated and the reading progress through the book.
 - Offers options to skip standalone page numbers and repeated page-header or footer lines that match the PDF filename. These filters are best-effort and may not identify every printed page number or title.
@@ -58,7 +60,7 @@ For PDFs that already contain selectable text, use **Read aloud** instead. Text 
 
 Kontho uses the open-source Tesseract4Android OCR engine. The app prioritizes higher-recognition-quality models for Bangla where possible, but OCR is not perfect. Results depend on scan resolution, contrast, page alignment, font size, and page layout. Some pages may require correction or a repeat scan.
 
-Speech is produced by the Android TTS engine, not by a built-in AI voice. Bangla pronunciation and voice availability depend on the engine and voices installed on the device. If a compatible Bangla voice is unavailable, Kontho may use the device's default voice and prompt the reader to check Android TTS settings.
+Speech is produced by the Android TTS engine, not by a built-in AI voice. In the reader's **Read aloud settings**, use **Choose / test Bangla voice** to preview the Bangla voices listed by the current engine. To install another voice or change engines, open Settings → **Bangla speech voice & engine**. Not every device offers multiple Bangla voices, and an installed voice can still sound synthetic. If a compatible Bangla voice is unavailable, Kontho may use the device's default voice and prompt the reader to check Android TTS settings.
 
 ## Privacy and storage
 
