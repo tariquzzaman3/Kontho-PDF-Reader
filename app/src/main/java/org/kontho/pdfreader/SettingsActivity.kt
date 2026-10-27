@@ -406,18 +406,120 @@ class SettingsActivity : ComponentActivity() {
         val scroll = android.widget.ScrollView(this)
         val options = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         scroll.addView(options)
-        fun addRow(titleText: String, summary: String, action: () -> Unit) {
-            val button = Button(this).apply {
-                text = "$titleText\n$summary"
-                isAllCaps = false
-                gravity = Gravity.START or Gravity.CENTER_VERTICAL
-                setOnClickListener { action() }
-            }
-            options.addView(button, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                bottomMargin = 8
-            })
+        val foreground = if (dark) Color.rgb(244, 248, 246) else Color.rgb(27, 48, 42)
+        val muted = if (dark) Color.rgb(174, 190, 182) else Color.rgb(101, 119, 111)
+        val cardSurface = if (dark) Color.rgb(35, 44, 40) else Color.WHITE
+        val cardStroke = if (dark) Color.rgb(58, 72, 65) else Color.rgb(225, 233, 229)
+        val accent = Color.rgb(18, 104, 84)
+
+        fun cardBackground() = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = dp(16).toFloat()
+            setColor(cardSurface)
+            setStroke(dp(1), cardStroke)
         }
 
+        fun addSection(sectionTitle: String) {
+            val heading = TextView(this).apply {
+                text = sectionTitle
+                textSize = 12f
+                letterSpacing = 0.08f
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(if (dark) Color.rgb(142, 198, 177) else accent)
+                setPadding(dp(2), dp(15), 0, dp(8))
+            }
+            options.addView(heading, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            ))
+        }
+
+        fun addRow(titleText: String, summary: String, action: () -> Unit) {
+            val card = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(16), dp(13), dp(13), dp(13))
+                background = cardBackground()
+                isClickable = true
+                isFocusable = true
+                setOnClickListener { action() }
+            }
+            val textColumn = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER_VERTICAL
+            }
+            val heading = TextView(this).apply {
+                text = titleText
+                textSize = 15f
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(foreground)
+            }
+            val detail = TextView(this).apply {
+                text = summary
+                textSize = 12f
+                setTextColor(muted)
+                setPadding(0, dp(4), 0, 0)
+            }
+            textColumn.addView(heading, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            ))
+            textColumn.addView(detail, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            ))
+            val arrow = TextView(this).apply {
+                text = "›"
+                textSize = 25f
+                gravity = Gravity.CENTER
+                setTextColor(muted)
+                setPadding(dp(8), 0, 0, 0)
+            }
+            card.addView(textColumn, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            card.addView(arrow, LinearLayout.LayoutParams(dp(24), ViewGroup.LayoutParams.WRAP_CONTENT))
+            options.addView(card, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(8) })
+        }
+
+        fun addToggleRow(titleText: String, summary: String, checked: Boolean, onChanged: (Boolean) -> Unit) {
+            val card = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(16), dp(13), dp(12), dp(13))
+                background = cardBackground()
+            }
+            val textColumn = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER_VERTICAL
+            }
+            val heading = TextView(this).apply {
+                text = titleText
+                textSize = 15f
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(foreground)
+            }
+            val detail = TextView(this).apply {
+                text = summary
+                textSize = 12f
+                setTextColor(muted)
+                setPadding(0, dp(4), 0, 0)
+            }
+            textColumn.addView(heading)
+            textColumn.addView(detail)
+            val toggle = android.widget.Switch(this).apply {
+                isChecked = checked
+                contentDescription = titleText
+                setOnCheckedChangeListener { _, enabled -> onChanged(enabled) }
+            }
+            card.addView(textColumn, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            card.addView(toggle, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { marginStart = dp(8) })
+            card.setOnClickListener { toggle.isChecked = !toggle.isChecked }
+            options.addView(card, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(8) })
+        }
+
+        addSection(label("GENERAL", "সাধারণ"))
         val language = prefs.getString("app_language", "en") ?: "en"
         addRow(label("App language", "অ্যাপের ভাষা"), if (language == "bn") "বাংলা" else "English") {
             AlertDialog.Builder(this).setTitle(label("App language", "অ্যাপের ভাষা"))
@@ -470,6 +572,7 @@ class SettingsActivity : ComponentActivity() {
             }.setNegativeButton(label("Cancel", "বাতিল"), null).show()
         }
 
+        addSection(label("READING", "পাঠ"))
         val narrationRates = floatArrayOf(0.75f, 0.85f, 0.95f, 1.05f)
         val narrationRateLabels = arrayOf(
             label("Slow storyteller (0.75x)", "ধীর গল্পপাঠ (০.৭৫×)"),
@@ -492,13 +595,35 @@ class SettingsActivity : ComponentActivity() {
                 .show()
         }
 
+        addRow(
+            label("Bangla speech voice & engine", "বাংলা কণ্ঠ ও TTS ইঞ্জিন"),
+            label(
+                "Install Bangla voice data or change the Android speech engine",
+                "বাংলা ভয়েস ডেটা ইনস্টল করুন বা Android-এর TTS ইঞ্জিন বদলান"
+            )
+        ) {
+            try {
+                startActivity(Intent("com.android.settings.TTS_SETTINGS"))
+            } catch (_: Exception) {
+                try {
+                    startActivity(Intent(android.provider.Settings.ACTION_SETTINGS))
+                } catch (_: Exception) {
+                    Toast.makeText(
+                        this,
+                        label("Open Android Settings and search for Text-to-speech output.", "Android Settings-এ Text-to-speech output খুঁজুন।"),
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        }
+
         val cacheLimitChoices = intArrayOf(10, 25, 50, 100, 250, 500, 0)
         val cacheLimitLabels = arrayOf(
             "10 MB", "25 MB", "50 MB", "100 MB", "250 MB", "500 MB",
             label("No limit", "সীমাহীন")
         )
         val savedCacheLimit = prefs.getInt("ocr_cache_limit_mb", 50)
-        val selectedCacheLimit = cacheLimitChoices.indexOf(savedCacheLimit).coerceAtLeast(0)
+        val selectedCacheLimit = cacheLimitChoices.indexOf(savedCacheLimit).let { if (it >= 0) it else 2 }
         val cachedOcrBytes = ocrCacheUsageBytes()
         val cacheUsageLabel = if (cachedOcrBytes < 1024L * 1024L) {
             "${(cachedOcrBytes / 1024L).coerceAtLeast(0)} KB"
@@ -518,30 +643,25 @@ class SettingsActivity : ComponentActivity() {
                     prefs.edit().putInt("ocr_cache_limit_mb", limitMb).apply()
                     trimOcrCache(limitMb)
                     dialog.dismiss()
+                    Toast.makeText(this, label("OCR cache limit saved", "OCR ক্যাশের সীমা সংরক্ষিত"), Toast.LENGTH_SHORT).show()
                     render()
                 }
-                .setMessage(label(
-                    "This limit applies to recognized OCR text only. PDF files and downloaded language models use separate storage. When the limit is reached, older scanned pages are removed first and can be scanned again when needed.",
-                    "এই সীমা শুধু OCR-এ শনাক্ত করা লেখার জন্য। PDF এবং ডাউনলোড করা ভাষার মডেল আলাদা জায়গায় থাকে। সীমা পূর্ণ হলে পুরোনো স্ক্যান আগে মুছে যাবে; দরকার হলে আবার স্ক্যান করা যাবে।"
-                ))
                 .setNegativeButton(label("Cancel", "বাতিল"), null)
                 .show()
         }
 
+        addSection(label("STORAGE", "স্টোরেজ"))
         val booksFolder = prefs.getString("book_folder_uri", null)
         addRow(label("Books folder", "বইয়ের ফোল্ডার"), if (booksFolder == null) label("Not selected", "নির্বাচন করা হয়নি") else label("Selected · scan on app launch", "নির্বাচিত · অ্যাপ খোলার সময় স্ক্যান")) {
             chooseBooks.launch(null)
         }
 
-        val cacheFolder = prefs.getString("cache_folder_uri", null)
-        addRow(label("Audio/cache storage folder", "অডিও/ক্যাশ স্টোরেজ ফোল্ডার"), if (cacheFolder == null) label("Not selected", "নির্বাচন করা হয়নি") else label("Selected", "নির্বাচিত")) {
-            chooseCache.launch(null)
-        }
-        addRow(label("About storage access", "স্টোরেজ সম্পর্কে"), label("Android asks you to grant access to a folder. Choose phone memory or an SD card in the folder picker.", "Android ফোল্ডারের অনুমতি চাইবে। ফোল্ডার বাছাইয়ের সময় ফোন মেমোরি বা SD কার্ড নির্বাচন করুন।")) {
-            AlertDialog.Builder(this).setMessage(label("Kontho scans the folder you grant access to each time the app opens. Android does not allow unrestricted scanning of every location by default. OCR text is kept in app storage and controlled by the OCR text-cache limit above. The selected folder is reserved for future generated audio/cache files.", "অ্যাপ খোলার সময় অনুমতিপ্রাপ্ত ফোল্ডারটি স্ক্যান করা হয়। Android ডিফল্টভাবে সব জায়গা অবাধে স্ক্যান করতে দেয় না। OCR লেখার ক্যাশ অ্যাপের নিজস্ব স্টোরেজে থাকে এবং উপরের সীমা দিয়ে নিয়ন্ত্রিত হয়। নির্বাচিত ফোল্ডারটি ভবিষ্যতে তৈরি অডিও/ক্যাশ ফাইলের জন্য রাখা হয়েছে।"))
+        addRow(label("About storage access", "স্টোরেজ সম্পর্কে"), label("Books are scanned only in your selected folder. OCR text cache stays in app storage and follows the limit above.", "শুধু আপনার বেছে নেওয়া ফোল্ডারে বই খোঁজা হয়। OCR লেখার ক্যাশ অ্যাপের নিজস্ব স্টোরেজে থাকে এবং উপরের সীমা মেনে চলে।")) {
+            AlertDialog.Builder(this).setMessage(label("Kontho scans only the folder you grant access to. Android does not allow unrestricted scanning of every location by default. PDF files remain where you store them, while OCR text cache is managed separately in app storage. Speech is generated by Android text-to-speech; this version does not save generated audio files.", "কণ্ঠ শুধু আপনার অনুমতি দেওয়া ফোল্ডার স্ক্যান করে। Android ডিফল্টভাবে সব জায়গা অবাধে স্ক্যান করতে দেয় না। PDF আপনার নির্বাচিত জায়গাতেই থাকে, আর OCR লেখার ক্যাশ অ্যাপের নিজস্ব স্টোরেজে আলাদাভাবে থাকে। Android-এর টেক্সট-টু-স্পিচ কণ্ঠ তৈরি করে; এই সংস্করণে তৈরি অডিও ফাইল হিসেবে সংরক্ষণ করা হয় না।"))
                 .setPositiveButton(label("OK", "ঠিক আছে"), null).show()
         }
 
+        addSection(label("UPDATES & ABOUT", "আপডেট ও পরিচিতি"))
         addRow(label("About Kontho", "কণ্ঠ পরিচিতি"), label("Version 0.6.0 · Bangla PDF reader", "সংস্করণ ০.৬.০ · বাংলা PDF রিডার")) {
             AlertDialog.Builder(this)
                 .setTitle("কণ্ঠ · Kontho PDF Reader")
@@ -549,31 +669,38 @@ class SettingsActivity : ComponentActivity() {
                 .setPositiveButton(label("OK", "ঠিক আছে"), null).show()
         }
 
-        addRow(label("Check for updates", "আপডেট দেখুন"), label("Check the latest published GitHub release", "সর্বশেষ প্রকাশিত GitHub রিলিজ দেখুন")) {
+        addRow(
+            label("Support Kontho", "কণ্ঠকে সহায়তা করুন"),
+            label("Buy a coffee or support the project", "কফি কিনে বা অনুদান দিয়ে প্রকল্পটিকে সহায়তা করুন")
+        ) {
+            try {
+                startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.supportkori.com/tariquzzaman")))
+            } catch (_: Exception) {
+                Toast.makeText(
+                    this,
+                    label("Could not open the support page.", "সহায়তার পৃষ্ঠাটি খোলা যায়নি।"),
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        }
+
+        addRow(label("Check for update now", "এখনই আপডেট দেখুন"), label("Check GitHub for a newer release", "নতুন রিলিজের জন্য GitHub পরীক্ষা করুন")) {
             checkForUpdates(manual = true)
         }
 
         val automaticChecks = prefs.getBoolean("auto_check_updates", true)
-        addRow(
+        addToggleRow(
             label("Automatic update checks", "স্বয়ংক্রিয় আপডেট পরীক্ষা"),
-            if (automaticChecks) label("Enabled · checks once a day", "চালু · দিনে একবার পরীক্ষা") else label("Disabled", "বন্ধ")
-        ) {
-            AlertDialog.Builder(this)
-                .setTitle(label("Automatic update checks", "স্বয়ংক্রিয় আপডেট পরীক্ষা"))
-                .setSingleChoiceItems(
-                    arrayOf(label("Enabled", "চালু"), label("Disabled", "বন্ধ")),
-                    if (automaticChecks) 0 else 1
-                ) { dialog, which ->
-                    prefs.edit().putBoolean("auto_check_updates", which == 0).apply()
-                    dialog.dismiss()
-                    render()
-                }
-                .setMessage(label(
-                    "When enabled, Kontho checks GitHub once per day for a newer published release and notifies you. Updates are never silently installed; you approve opening and installing an update.",
-                    "চালু থাকলে কণ্ঠ প্রতিদিন GitHub-এ নতুন রিলিজ আছে কি না দেখে জানাবে। কোনো আপডেট গোপনে ইনস্টল হয় না; আপডেট খুলে ইনস্টল করার সিদ্ধান্ত আপনাকেই নিতে হবে।"
-                ))
-                .setNegativeButton(label("Cancel", "বাতিল"), null)
-                .show()
+            label("Check at most once a day while using Kontho", "কণ্ঠ ব্যবহার করার সময় দিনে সর্বোচ্চ একবার পরীক্ষা"),
+            automaticChecks
+        ) { enabled ->
+            prefs.edit().putBoolean("auto_check_updates", enabled).apply()
+            Toast.makeText(
+                this,
+                if (enabled) label("Automatic update checks enabled", "স্বয়ংক্রিয় আপডেট পরীক্ষা চালু")
+                else label("Automatic update checks disabled", "স্বয়ংক্রিয় আপডেট পরীক্ষা বন্ধ"),
+                Toast.LENGTH_SHORT
+            ).show()
         }
 
         addRow(label("Privacy policy", "গোপনীয়তা নীতি"), label("How Kontho handles PDFs, OCR and voice data", "PDF, OCR ও ভয়েস ডেটা কীভাবে ব্যবহৃত হয়")) {
