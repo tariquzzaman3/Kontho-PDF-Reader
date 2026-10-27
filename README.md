@@ -10,6 +10,14 @@ The current preview APK is published on the [GitHub Releases page](https://githu
 
 This is a **debug-signed preview build for manual installation and testing**, not a production-signed APK or a Google Play release. Bangla OCR depends on scan quality, and spoken Bangla depends on the TTS voice available on the device. The app has passed the automated GitHub Actions build; physical-device testing is still required.
 
+## Support Kontho
+
+Kontho is free to use. If you would like to support its development, visit the creator's SupportKori page:
+
+**[☕ Support Kontho on SupportKori](https://www.supportkori.com/tariquzzaman)**
+
+This link opens the external support page; no personal bank-account number is published in this repository.
+
 ## Key Features
 
 ### Read Bangla scanned PDFs
