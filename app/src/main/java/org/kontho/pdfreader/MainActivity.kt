@@ -1828,9 +1828,9 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             .setTitle(if (language) "বাংলা পড়ার কণ্ঠ" else "Bangla reading voice")
             .setMessage(
                 if (language) {
-                    "একটি কণ্ঠ নির্বাচন করলে সংরক্ষণ হবে এবং নমুনা শোনাবে। অনলাইন কণ্ঠের জন্য ইন্টারনেট প্রয়োজন হতে পারে।"
+                    "একটি কণ্ঠ নির্বাচন করলে সংরক্ষণ হবে এবং নমুনা শোনাবে। অনলাইন কণ্ঠের জন্য ইন্টারনেট লাগতে পারে; লেখা কণ্ঠ-সেবাদাতার কাছে পাঠানো হতে পারে।"
                 } else {
-                    "Choose a voice to save it and hear a short sample. Online voices may need an internet connection."
+                    "Choose a voice to save it and hear a short sample. Online voices need internet and may send text to the speech provider."
                 }
             )
             .setSingleChoiceItems(options, selectedIndex) { dialog, which ->
