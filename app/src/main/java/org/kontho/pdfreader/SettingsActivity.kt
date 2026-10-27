@@ -595,6 +595,28 @@ class SettingsActivity : ComponentActivity() {
                 .show()
         }
 
+        addRow(
+            label("Bangla speech voice & engine", "বাংলা কণ্ঠ ও TTS ইঞ্জিন"),
+            label(
+                "Install Bangla voice data or change the Android speech engine",
+                "বাংলা ভয়েস ডেটা ইনস্টল করুন বা Android-এর TTS ইঞ্জিন বদলান"
+            )
+        ) {
+            try {
+                startActivity(Intent("com.android.settings.TTS_SETTINGS"))
+            } catch (_: Exception) {
+                try {
+                    startActivity(Intent(android.provider.Settings.ACTION_SETTINGS))
+                } catch (_: Exception) {
+                    Toast.makeText(
+                        this,
+                        label("Open Android Settings and search for Text-to-speech output.", "Android Settings-এ Text-to-speech output খুঁজুন।"),
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        }
+
         val cacheLimitChoices = intArrayOf(10, 25, 50, 100, 250, 500, 0)
         val cacheLimitLabels = arrayOf(
             "10 MB", "25 MB", "50 MB", "100 MB", "250 MB", "500 MB",
