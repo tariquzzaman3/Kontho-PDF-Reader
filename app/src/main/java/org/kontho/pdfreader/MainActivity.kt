@@ -2321,13 +2321,18 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             return
         }
         val defaultLocale = Locale.getDefault()
+        val hasBanglaCharacters = narrationText.any { it in '\u0980'..'\u09FF' }
         val preferredLocale = if (mode == "ocr") {
             when (preferences.getString("ocr_language", "ben") ?: "ben") {
                 "ben" -> Locale("bn", "BD")
                 "eng" -> Locale.ENGLISH
-                else -> defaultLocale
+                else -> if (hasBanglaCharacters) Locale("bn", "BD") else defaultLocale
             }
-        } else defaultLocale
+        } else if (hasBanglaCharacters) {
+            Locale("bn", "BD")
+        } else {
+            defaultLocale
+        }
         var localeResult = speech.setLanguage(preferredLocale)
         var usingDefaultVoice = false
         if (localeResult < TextToSpeech.LANG_AVAILABLE && preferredLocale != defaultLocale) {
@@ -2343,7 +2348,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         if (usingDefaultVoice && mode == "ocr" && preferredLocale.language == "bn") {
             toast("A Bangla voice is not installed; using the device default voice. Install one in Android TTS settings when available.")
         }
-        if (mode == "ocr" && preferredLocale.language == "bn") {
+        if (preferredLocale.language == "bn") {
             applySavedBanglaVoice(speech)
         }
         speech.setSpeechRate(preferences.getFloat("narration_rate", 0.85f).coerceIn(0.5f, 1.5f))
