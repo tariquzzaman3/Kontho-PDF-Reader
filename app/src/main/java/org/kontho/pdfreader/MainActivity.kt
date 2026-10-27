@@ -29,6 +29,7 @@ import android.print.PrintDocumentInfo
 import android.print.PrintManager
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
+import android.speech.tts.Voice
 import android.text.InputType
 import android.view.Gravity
 import android.view.MotionEvent
@@ -1645,6 +1646,25 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         root.addView(pitchLabel)
         root.addView(pitchValueLabel)
         root.addView(pitch)
+        val banglaVoiceButton = Button(this).apply {
+            text = if (language) "বাংলা কণ্ঠ বেছে নিন / পরীক্ষা করুন" else "Choose / test Bangla voice"
+            isAllCaps = false
+            setOnClickListener { showBanglaVoiceOptions() }
+        }
+        root.addView(banglaVoiceButton, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ))
+        val voiceHelp = TextView(this).apply {
+            text = if (language) {
+                "কণ্ঠের স্বাভাবিকতা ফোনে ইনস্টল করা TTS ইঞ্জিন ও ভয়েসের ওপর নির্ভর করে।"
+            } else {
+                "Naturalness depends on the speech engine and voices installed on this phone."
+            }
+            textSize = 11f
+            alpha = 0.78f
+            setPadding(0, dp(2), 0, dp(8))
+        }
+        root.addView(voiceHelp)
         val scanAhead = option(
             if (language) "পরের পৃষ্ঠা আগে স্ক্যান করুন" else "Scan the next page ahead",
             "ocr_prefetch_next_page", true
@@ -1741,6 +1761,116 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             try { startActivity(Intent(android.provider.Settings.ACTION_SETTINGS)) }
             catch (_: Exception) { toast("Open Android Settings and search for Text-to-speech output.") }
         }
+    }
+
+    private fun showBanglaVoiceOptions() {
+        val speech = tts
+        if (!ttsReady || speech == null) {
+            toast("Speech engine is still starting. Please try again.")
+            return
+        }
+
+        val voices = speech.voices.orEmpty()
+            .filter { it.locale.language.equals("bn", ignoreCase = true) }
+            .distinctBy { it.name }
+            .sortedWith(
+                compareByDescending<Voice> { it.quality }
+                    .thenBy { it.isNetworkConnectionRequired }
+                    .thenBy { it.latency }
+            )
+        val language = preferences.getString("app_language", "en") == "bn"
+
+        if (voices.isEmpty()) {
+            AlertDialog.Builder(this)
+                .setTitle(if (language) "বাংলা কণ্ঠ পাওয়া যায়নি" else "No Bangla voices found")
+                .setMessage(
+                    if (language) {
+                        "আপনার বর্তমান TTS ইঞ্জিনে কোনো বাংলা কণ্ঠ তালিকাভুক্ত নেই। Android-এর Text-to-speech settings খুলে Google Speech Services বা অন্য কোনো ইঞ্জিন নির্বাচন করুন এবং Install voice data থেকে বাংলা ভয়েস ইনস্টল করুন।"
+                    } else {
+                        "Your current TTS engine does not list a Bangla voice. Open Android Text-to-speech settings, try Google Speech Services or another installed engine, and use Install voice data to add a Bangla voice if available."
+                    }
+                )
+                .setPositiveButton(if (language) "TTS সেটিংস খুলুন" else "Open TTS settings") { _, _ ->
+                    openDeviceTtsSettings()
+                }
+                .setNegativeButton(if (language) "বন্ধ" else "Close", null)
+                .show()
+            return
+        }
+
+        val automaticLabel = if (language) "স্বয়ংক্রিয় (সিস্টেমের পছন্দ)" else "Automatic (system default)"
+        val voiceLabels = voices.mapIndexed { index, voice ->
+            val localeName = when (voice.locale.country.uppercase(Locale.ROOT)) {
+                "BD" -> if (language) "বাংলাদেশি বাংলা" else "Bangladeshi Bengali"
+                "IN" -> if (language) "ভারতীয় বাংলা" else "Indian Bengali"
+                else -> voice.locale.getDisplayName(if (language) Locale("bn") else Locale.ENGLISH)
+            }
+            val quality = when {
+                voice.quality >= Voice.QUALITY_VERY_HIGH -> if (language) "উচ্চ মান" else "Very high quality"
+                voice.quality >= Voice.QUALITY_HIGH -> if (language) "উচ্চ মান" else "High quality"
+                voice.quality >= Voice.QUALITY_NORMAL -> if (language) "সাধারণ মান" else "Standard quality"
+                else -> if (language) "নিম্ন/অজানা মান" else "Basic/unknown quality"
+            }
+            val connection = if (voice.isNetworkConnectionRequired) {
+                if (language) "অনলাইন" else "online"
+            } else {
+                if (language) "অফলাইন" else "offline"
+            }
+            "${index + 1}. $localeName · $quality · $connection"
+        }
+        val options = (listOf(automaticLabel) + voiceLabels).toTypedArray()
+        val savedVoiceName = preferences.getString("bangla_tts_voice_name", null)
+        val selectedIndex = if (savedVoiceName == null) 0 else {
+            voices.indexOfFirst { it.name == savedVoiceName }.let { if (it < 0) 0 else it + 1 }
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle(if (language) "বাংলা পড়ার কণ্ঠ" else "Bangla reading voice")
+            .setMessage(
+                if (language) {
+                    "একটি কণ্ঠ নির্বাচন করলে সংরক্ষণ হবে এবং নমুনা শোনাবে। অনলাইন কণ্ঠের জন্য ইন্টারনেট প্রয়োজন হতে পারে।"
+                } else {
+                    "Choose a voice to save it and hear a short sample. Online voices may need an internet connection."
+                }
+            )
+            .setSingleChoiceItems(options, selectedIndex) { dialog, which ->
+                val chosenVoice = voices.getOrNull(which - 1)
+                preferences.edit().apply {
+                    if (chosenVoice == null) remove("bangla_tts_voice_name")
+                    else putString("bangla_tts_voice_name", chosenVoice.name)
+                }.apply()
+                dialog.dismiss()
+
+                speech.stop()
+                val languageResult = speech.setLanguage(Locale("bn", "BD"))
+                if (languageResult < TextToSpeech.LANG_AVAILABLE) {
+                    toast("This engine cannot speak Bangla. Open Android text-to-speech settings to install a Bangla voice.")
+                    return@setSingleChoiceItems
+                }
+                if (chosenVoice != null && speech.setVoice(chosenVoice) != TextToSpeech.SUCCESS) {
+                    toast("Could not activate that voice. The system default will be used.")
+                }
+                speech.setSpeechRate(preferences.getFloat("narration_rate", 0.85f).coerceIn(0.5f, 1.5f))
+                speech.setPitch(preferences.getFloat("narration_pitch", 1.0f).coerceIn(0.5f, 1.5f))
+                val sample = "স্বাগতম। কণ্ঠ PDF Reader আপনাকে বাংলা বই পড়ে শোনাতে সাহায্য করে।"
+                val result = speech.speak(sample, TextToSpeech.QUEUE_FLUSH, null, "bangla-voice-preview")
+                if (result == TextToSpeech.ERROR) {
+                    toast("Voice preview failed. Check Android text-to-speech settings.")
+                }
+            }
+            .setNeutralButton(if (language) "TTS সেটিংস" else "TTS settings") { _, _ ->
+                openDeviceTtsSettings()
+            }
+            .setNegativeButton(if (language) "বন্ধ" else "Close", null)
+            .show()
+    }
+
+    private fun applySavedBanglaVoice(speech: TextToSpeech) {
+        val savedVoiceName = preferences.getString("bangla_tts_voice_name", null) ?: return
+        val voice = speech.voices.orEmpty().firstOrNull {
+            it.name == savedVoiceName && it.locale.language.equals("bn", ignoreCase = true)
+        } ?: return
+        speech.setVoice(voice)
     }
 
     private fun showOcrSettings() {
@@ -2212,6 +2342,9 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         }
         if (usingDefaultVoice && mode == "ocr" && preferredLocale.language == "bn") {
             toast("A Bangla voice is not installed; using the device default voice. Install one in Android TTS settings when available.")
+        }
+        if (mode == "ocr" && preferredLocale.language == "bn") {
+            applySavedBanglaVoice(speech)
         }
         speech.setSpeechRate(preferences.getFloat("narration_rate", 0.85f).coerceIn(0.5f, 1.5f))
         speech.setPitch(preferences.getFloat("narration_pitch", 1.0f).coerceIn(0.5f, 1.5f))
