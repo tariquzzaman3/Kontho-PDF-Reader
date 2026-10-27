@@ -669,6 +669,21 @@ class SettingsActivity : ComponentActivity() {
                 .setPositiveButton(label("OK", "ঠিক আছে"), null).show()
         }
 
+        addRow(
+            label("Support Kontho", "কণ্ঠকে সহায়তা করুন"),
+            label("Buy a coffee or support the project", "কফি কিনে বা অনুদান দিয়ে প্রকল্পটিকে সহায়তা করুন")
+        ) {
+            try {
+                startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.supportkori.com/tariquzzaman")))
+            } catch (_: Exception) {
+                Toast.makeText(
+                    this,
+                    label("Could not open the support page.", "সহায়তার পৃষ্ঠাটি খোলা যায়নি।"),
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        }
+
         addRow(label("Check for update now", "এখনই আপডেট দেখুন"), label("Check GitHub for a newer release", "নতুন রিলিজের জন্য GitHub পরীক্ষা করুন")) {
             checkForUpdates(manual = true)
         }
