@@ -267,39 +267,6 @@ class SettingsActivity : ComponentActivity() {
                 ))
             }
             1 -> {
-                addRow(
-            label("Set as default reader", "ডিফল্ট রিডার হিসেবে সেট করুন"),
-            label("Open PDFs from other apps with Kontho", "অন্যান্য অ্যাপের PDF কণ্ঠে খুলুন")
-        ) {
-            AlertDialog.Builder(this)
-                .setTitle(label("Set as default PDF reader", "ডিফল্ট PDF রিডার হিসেবে সেট করুন"))
-                .setMessage(
-                    label(
-                        "Android controls default apps, so Kontho cannot select itself automatically. Open App info and look for Open by default. If your phone does not offer a PDF option there, open a PDF from Files, choose Kontho PDF Reader, then tap Always.",
-                        "ডিফল্ট অ্যাপ Android নিয়ন্ত্রণ করে, তাই কণ্ঠ নিজে থেকে ডিফল্ট হতে পারে না। App info-তে Open by default দেখুন। সেখানে PDF-এর অপশন না থাকলে Files থেকে PDF খুলে Kontho PDF Reader বেছে নিয়ে Always চাপুন।"
-                    )
-                )
-                .setNegativeButton(label("Cancel", "বাতিল"), null)
-                .setPositiveButton(label("Open app settings", "অ্যাপ সেটিংস খুলুন")) { _, _ ->
-                    val appUri = Uri.parse("package:$packageName")
-                    try {
-                        val target = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                            Intent(Settings.ACTION_APP_OPEN_BY_DEFAULT_SETTINGS, appUri)
-                        } else {
-                            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, appUri)
-                        }
-                        startActivity(target)
-                    } catch (_: Exception) {
-                        try {
-                            startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, appUri))
-                        } catch (_: Exception) {
-                            Toast.makeText(this, label("Could not open Android app settings.", "Android অ্যাপ সেটিংস খোলা যায়নি।"), Toast.LENGTH_LONG).show()
-                        }
-                    }
-                }
-                .show()
-        }
-
         val theme = prefs.getString("app_theme", "system") ?: "system"
                 addChoiceRow(listOf(
                     choiceCard("◐", label("System", "সিস্টেম"), theme == "system") {
@@ -565,6 +532,39 @@ class SettingsActivity : ComponentActivity() {
         }
 
         val theme = prefs.getString("app_theme", "system") ?: "system"
+        addRow(
+            label("Set as default reader", "ডিফল্ট রিডার হিসেবে সেট করুন"),
+            label("Open PDFs from other apps with Kontho", "অন্যান্য অ্যাপের PDF কণ্ঠে খুলুন")
+        ) {
+            AlertDialog.Builder(this)
+                .setTitle(label("Set as default PDF reader", "ডিফল্ট PDF রিডার হিসেবে সেট করুন"))
+                .setMessage(
+                    label(
+                        "Android controls default apps, so Kontho cannot select itself automatically. Open App info and look for Open by default. If your phone does not offer a PDF option there, open a PDF from Files, choose Kontho PDF Reader, then tap Always.",
+                        "ডিফল্ট অ্যাপ Android নিয়ন্ত্রণ করে, তাই কণ্ঠ নিজে থেকে ডিফল্ট হতে পারে না। App info-তে Open by default দেখুন। সেখানে PDF-এর অপশন না থাকলে Files থেকে PDF খুলে Kontho PDF Reader বেছে নিয়ে Always চাপুন।"
+                    )
+                )
+                .setNegativeButton(label("Cancel", "বাতিল"), null)
+                .setPositiveButton(label("Open app settings", "অ্যাপ সেটিংস খুলুন")) { _, _ ->
+                    val appUri = Uri.parse("package:$packageName")
+                    try {
+                        val target = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                            Intent(Settings.ACTION_APP_OPEN_BY_DEFAULT_SETTINGS, appUri)
+                        } else {
+                            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, appUri)
+                        }
+                        startActivity(target)
+                    } catch (_: Exception) {
+                        try {
+                            startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, appUri))
+                        } catch (_: Exception) {
+                            Toast.makeText(this, label("Could not open Android app settings.", "Android অ্যাপ সেটিংস খোলা যায়নি।"), Toast.LENGTH_LONG).show()
+                        }
+                    }
+                }
+                .show()
+        }
+
         addRow(label("Appearance", "থিম"), when (theme) { "light" -> label("Light", "লাইট"); "dark" -> label("Dark", "ডার্ক"); else -> label("System default", "সিস্টেম ডিফল্ট") }) {
             AlertDialog.Builder(this).setTitle(label("Appearance", "থিম"))
                 .setSingleChoiceItems(arrayOf(label("System default", "সিস্টেম ডিফল্ট"), label("Light", "লাইট"), label("Dark", "ডার্ক")), when (theme) { "light" -> 1; "dark" -> 2; else -> 0 }) { dialog, which ->
