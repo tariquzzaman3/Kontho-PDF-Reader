@@ -6,7 +6,7 @@ Kontho (কণ্ঠ) is an Android application built with Kotlin for reading Ba
 
 ## Download preview
 
-The current preview APK is published on the [GitHub Releases page](https://github.com/tariquzzaman3/Kontho-PDF-Reader/releases/tag/v0.6.0-preview.1).
+The current preview APK (0.6.1 Preview 1) is published on the [GitHub Releases page](https://github.com/tariquzzaman3/Kontho-PDF-Reader/releases/tag/v0.6.1-preview.1).
 
 This is a **debug-signed preview build for manual installation and testing**, not a production-signed APK or a Google Play release. Bangla OCR depends on scan quality, and spoken Bangla depends on the TTS voice available on the device. The app has passed the automated GitHub Actions build; physical-device testing is still required.
 
@@ -35,6 +35,7 @@ This link opens the external support page; no personal bank-account number is pu
 - Provides controls for reading speed and voice pitch, plus play, pause/resume, stop, restart, and close.
 - Lets readers select and test Bangla voices reported by the installed Android TTS engine; saved choices are reused while reading Bangla text. Voice options and naturalness depend on the engine and installed voice data.
 - Provides a shortcut to Android Text-to-speech settings so readers can change engines or install available Bangla voice data. Network-required voices may need internet access.
+- Can be selected as a default PDF reader on Android, and can open PDF files shared or opened from other apps. Android requires the user to confirm the default app.
 - Can scan the next OCR page while the current page is being read and continue to the next page automatically when that option is enabled. When continuous OCR reading is active, closing the playback controls or leaving the PDF prompts for confirmation before stopping narration.
 - Displays the page currently being narrated and the reading progress through the book.
 - Offers options to skip standalone page numbers and repeated page-header or footer lines that match the PDF filename. These filters are best-effort and may not identify every printed page number or title.
