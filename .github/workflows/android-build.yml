@@ -55,13 +55,20 @@ jobs:
           ANDROID_UPLOAD_STORE_PASSWORD: ${{ secrets.ANDROID_UPLOAD_STORE_PASSWORD }}
           ANDROID_UPLOAD_KEY_ALIAS: ${{ secrets.ANDROID_UPLOAD_KEY_ALIAS }}
           ANDROID_UPLOAD_KEY_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEY_PASSWORD }}
-        run: gradle --no-daemon clean assembleDebug bundleRelease
+        run: gradle --no-daemon clean assembleDebug assembleRelease bundleRelease
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
           name: kontho-pdf-reader-debug
           path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+
+      - name: Upload release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: kontho-pdf-reader-release-apk
+          path: app/build/outputs/apk/release/*.apk
           if-no-files-found: error
 
       - name: Upload release AAB (signed only when upload-key secrets are configured)
@@ -81,23 +88,31 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Download debug APK artifact
+      - name: Download release APK artifact
         uses: actions/download-artifact@v4
         with:
-          name: kontho-pdf-reader-debug
+          name: kontho-pdf-reader-release-apk
           path: release-assets
 
-      - name: Prepare stable release APK
+      - name: Prepare and verify stable release APK
         shell: bash
         run: |
           set -euo pipefail
-          apk="$(find release-assets -type f -name 'app-debug.apk' -print -quit)"
+          apk="$(find release-assets -type f -name 'app-release.apk' -print -quit)"
           if [ -z "$apk" ]; then
-            echo "Debug APK artifact did not contain app-debug.apk." >&2
+            echo "No signed app-release.apk was produced. Configure ANDROID_UPLOAD_KEYSTORE_BASE64, ANDROID_UPLOAD_STORE_PASSWORD, ANDROID_UPLOAD_KEY_ALIAS, and ANDROID_UPLOAD_KEY_PASSWORD in repository Actions secrets. Unsigned APKs are not published as stable releases." >&2
+            find release-assets -type f -maxdepth 2 -print
             exit 1
           fi
-          cp "$apk" "Kontho-PDF-Reader-v0.6.1.apk"
-          test -s "Kontho-PDF-Reader-v0.6.1.apk"
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          APKSIGNER="$(find "$SDK_ROOT/build-tools" -type f -name apksigner -print -quit)"
+          if [ -z "$APKSIGNER" ]; then
+            echo "Could not find apksigner under $SDK_ROOT/build-tools" >&2
+            exit 1
+          fi
+          "$APKSIGNER" verify "$apk"
+          cp "$apk" "Kontho-PDF-Reader-v0.6.2.apk"
+          test -s "Kontho-PDF-Reader-v0.6.2.apk"
 
       - name: Publish stable release to GitHub Releases
         env:
@@ -105,9 +120,9 @@ jobs:
         shell: bash
         run: |
           cat > release-notes.md <<'NOTES'
-          ## Kontho PDF Reader 0.6.1
+          ## Kontho PDF Reader 0.6.2
 
-          This stable GitHub release of Kontho 0.6.1 includes default PDF reader support alongside the existing Bangla OCR and read-aloud features.
+          This stable GitHub release of Kontho 0.6.2 improves in-app update downloads and preserves release signing for future updates, alongside default PDF reader support, Bangla OCR and read-aloud features.
 
           - Bangla, English, and Bangla + English OCR.
           - Accurate-OCR read-aloud with page-ahead scanning and optional continuous reading.
@@ -116,12 +131,12 @@ jobs:
           - Choose Kontho as the default PDF handler on Android, and open PDFs launched from other apps.
           - Select and preview supported Bangla TTS voices available on the device; actual voice quality depends on the installed speech engine.
 
-          **Signing and testing:** This APK is built from the Gradle debug variant and uses the debug signing key. It is published here for direct GitHub installation, but it is not production-signed or Google Play-ready. Bangla voice quality depends on the TTS engine and voice installed on the device. OCR accuracy varies with page quality and layout. Please test with your own PDFs before relying on it.
+          **Signing and testing:** This APK is signed using the persistent Kontho release key and is published for direct GitHub installation. It is not a Google Play release. Keep the signing key backed up securely; future updates must use the same key. Bangla voice quality depends on the TTS engine and voice installed on the device. OCR accuracy varies with page quality and layout. Please test with your own PDFs before relying on it.
           NOTES
 
-          gh release create "v0.6.1" \
-            "Kontho-PDF-Reader-v0.6.1.apk" \
+          gh release create "v0.6.2" \
+            "Kontho-PDF-Reader-v0.6.2.apk" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
-            --title "Kontho PDF Reader 0.6.1" \
+            --title "Kontho PDF Reader 0.6.2" \
             --notes-file release-notes.md
