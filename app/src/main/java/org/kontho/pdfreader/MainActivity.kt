@@ -82,6 +82,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private val worker = Executors.newSingleThreadExecutor()
     private val thumbnailWorker = Executors.newSingleThreadExecutor()
     private val preferences by lazy { getSharedPreferences("kontho_library", MODE_PRIVATE) }
+    private val updateDownloadReceiver by lazy { UpdateDownloadReceiver(this) }
+    private var updateDownloadReceiverRegistered = false
 
     private var books: List<Book> = emptyList()
     private var currentBook: Book? = null
@@ -228,13 +230,18 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 .setTitle("কণ্ঠ · Kontho PDF Reader update")
                 .setMessage(
                     "A newer version (${result.latestVersion}) is available. " +
-                        "You have ${result.installedVersion}. Open the official release page to review it."
+                        "You have ${result.installedVersion}. Download the APK directly and Android will open its installer when the download finishes."
                 )
-                .setPositiveButton("View update") { _, _ ->
-                    try {
-                        startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(result.releaseUrl ?: GithubReleaseChecker.RELEASES_URL)))
-                    } catch (_: Exception) {
-                        toast("Could not open the update page.")
+                .setPositiveButton("Download update") { _, _ ->
+                    val apkUrl = result.apkDownloadUrl
+                    if (!apkUrl.isNullOrBlank()) {
+                        UpdateInstaller.enqueue(this, apkUrl, result.latestVersion ?: "update")
+                    } else {
+                        try {
+                            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(result.releaseUrl ?: GithubReleaseChecker.RELEASES_URL)))
+                        } catch (_: Exception) {
+                            toast("Could not open the update page.")
+                        }
                     }
                 }
                 .setNegativeButton("Later", null)
@@ -248,8 +255,15 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             .joinToString("|") { key -> p.all[key]?.toString() ?: "" }
     }
 
+    override fun onStart() {
+        super.onStart()
+        UpdateInstaller.registerReceiver(this, updateDownloadReceiver)
+        updateDownloadReceiverRegistered = true
+    }
+
     override fun onResume() {
         super.onResume()
+        UpdateInstaller.checkPendingDownload(this)
         maybeCheckForUpdatesAutomatically()
         applyKeepScreenAwakeFlag()
         val snapshot = currentSettingsSnapshot()
@@ -2840,6 +2854,10 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     }
 
     override fun onStop() {
+        if (updateDownloadReceiverRegistered) {
+            try { unregisterReceiver(updateDownloadReceiver) } catch (_: Exception) { }
+            updateDownloadReceiverRegistered = false
+        }
         if (!preferences.getBoolean("read_aloud_background", false)) {
             stopReaderNarration()
         }
