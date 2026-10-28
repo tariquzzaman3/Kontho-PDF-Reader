@@ -697,10 +697,10 @@ class SettingsActivity : ComponentActivity() {
         }
 
         addSection(label("UPDATES & ABOUT", "আপডেট ও পরিচিতি"))
-        addRow(label("About Kontho", "কণ্ঠ পরিচিতি"), label("Version 0.6.0 · Bangla PDF reader", "সংস্করণ ০.৬.০ · বাংলা PDF রিডার")) {
+        addRow(label("About Kontho", "কণ্ঠ পরিচিতি"), label("Version 0.6.1 · Bangla PDF reader", "সংস্করণ ০.৬.১ · বাংলা PDF রিডার")) {
             AlertDialog.Builder(this)
                 .setTitle("কণ্ঠ · Kontho PDF Reader")
-                .setMessage(label("Version 0.6.0\nRead PDFs, use Bengali/English OCR, and listen through Android text-to-speech.", "সংস্করণ ০.৬.০\nPDF পড়ুন, বাংলা/ইংরেজি OCR ব্যবহার করুন এবং Android-এর কণ্ঠে শুনুন।"))
+                .setMessage(label("Version 0.6.1\nRead PDFs, use Bengali/English OCR, and listen through Android text-to-speech.", "সংস্করণ ০.৬.১\nPDF পড়ুন, বাংলা/ইংরেজি OCR ব্যবহার করুন এবং Android-এর কণ্ঠে শুনুন।"))
                 .setPositiveButton(label("OK", "ঠিক আছে"), null).show()
         }
 
