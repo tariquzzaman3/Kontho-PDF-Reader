@@ -11,6 +11,7 @@ data class UpdateCheckResult(
     val installedVersion: String,
     val latestVersion: String?,
     val releaseUrl: String?,
+    val apkDownloadUrl: String?,
     val errorMessage: String? = null
 ) {
     val updateAvailable: Boolean
@@ -50,20 +51,34 @@ object GithubReleaseChecker {
                     val releases = connection.inputStream.bufferedReader(Charsets.UTF_8).use {
                         org.json.JSONArray(it.readText())
                     }
-                    val release = (0 until releases.length())
+                    val published = (0 until releases.length())
                         .mapNotNull { index -> releases.optJSONObject(index) }
-                        .firstOrNull { candidate -> !candidate.optBoolean("draft", false) }
-                        ?: throw IOException("No published GitHub releases were found.")
+                        .filterNot { candidate -> candidate.optBoolean("draft", false) }
+                    fun apkUrl(candidate: org.json.JSONObject): String? {
+                        val assets = candidate.optJSONArray("assets") ?: return null
+                        return (0 until assets.length())
+                            .mapNotNull { index -> assets.optJSONObject(index) }
+                            .firstOrNull { asset ->
+                                asset.optString("name").endsWith(".apk", ignoreCase = true) &&
+                                    asset.optString("browser_download_url").startsWith("https://github.com/")
+                            }
+                            ?.optString("browser_download_url")
+                            ?.takeIf { it.isNotBlank() }
+                    }
+                    val release = published.firstOrNull { candidate ->
+                        !candidate.optBoolean("prerelease", false) && apkUrl(candidate) != null
+                    } ?: published.firstOrNull { candidate -> apkUrl(candidate) != null }
+                        ?: throw IOException("No published GitHub release with an APK was found.")
                     val latest = release.optString("tag_name").ifBlank { release.optString("name") }.trim()
                     if (latest.isBlank()) throw IOException("The latest GitHub release did not include a version.")
                     val url = release.optString("html_url").takeIf { it.startsWith("https://") }
                         ?: RELEASES_URL
-                    UpdateCheckResult(installed, latest, url)
+                    UpdateCheckResult(installed, latest, url, apkUrl(release))
                 } finally {
                     connection.disconnect()
                 }
             } catch (error: Exception) {
-                UpdateCheckResult(installed, null, null, error.localizedMessage ?: "Could not contact GitHub.")
+                UpdateCheckResult(installed, null, null, null, error.localizedMessage ?: "Could not contact GitHub.")
             }
             Handler(Looper.getMainLooper()).post { callback(result) }
         }, "kontho-update-check").apply {
