@@ -71,11 +71,11 @@ jobs:
           path: app/build/outputs/bundle/release/app-release.aab
           if-no-files-found: error
 
-  publish-preview:
+  publish-stable-release:
     if: >-
       ${{ github.event_name == 'push' &&
           github.ref == 'refs/heads/main' &&
-          contains(github.event.head_commit.message, '[release]') }}
+          contains(github.event.head_commit.message, '[release-stable]') }}
     needs: build
     runs-on: ubuntu-latest
     permissions:
@@ -87,7 +87,7 @@ jobs:
           name: kontho-pdf-reader-debug
           path: release-assets
 
-      - name: Prepare preview APK
+      - name: Prepare stable release APK
         shell: bash
         run: |
           set -euo pipefail
@@ -96,18 +96,18 @@ jobs:
             echo "Debug APK artifact did not contain app-debug.apk." >&2
             exit 1
           fi
-          cp "$apk" "Kontho-PDF-Reader-v0.6.1-preview.1.apk"
-          test -s "Kontho-PDF-Reader-v0.6.1-preview.1.apk"
+          cp "$apk" "Kontho-PDF-Reader-v0.6.1.apk"
+          test -s "Kontho-PDF-Reader-v0.6.1.apk"
 
-      - name: Publish preview to GitHub Releases
+      - name: Publish stable release to GitHub Releases
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           cat > release-notes.md <<'NOTES'
-          ## Kontho PDF Reader 0.6.1 Preview 1
+          ## Kontho PDF Reader 0.6.1
 
-          This preview updates Kontho to 0.6.1 and adds default PDF reader support alongside the existing Bangla OCR and read-aloud features.
+          This stable GitHub release of Kontho 0.6.1 includes default PDF reader support alongside the existing Bangla OCR and read-aloud features.
 
           - Bangla, English, and Bangla + English OCR.
           - Accurate-OCR read-aloud with page-ahead scanning and optional continuous reading.
@@ -116,13 +116,12 @@ jobs:
           - Choose Kontho as the default PDF handler on Android, and open PDFs launched from other apps.
           - Select and preview supported Bangla TTS voices available on the device; actual voice quality depends on the installed speech engine.
 
-          **Important:** This APK is built from the Gradle debug variant and uses the debug signing key. It is intended for manual installation and testing, not for Google Play distribution. Bangla voice quality depends on the TTS engine and voice installed on the device. OCR accuracy varies with page quality and layout. The successful CI build does not replace physical-device testing.
+          **Signing and testing:** This APK is built from the Gradle debug variant and uses the debug signing key. It is published here for direct GitHub installation, but it is not production-signed or Google Play-ready. Bangla voice quality depends on the TTS engine and voice installed on the device. OCR accuracy varies with page quality and layout. Please test with your own PDFs before relying on it.
           NOTES
 
-          gh release create "v0.6.1-preview.1" \
-            "Kontho-PDF-Reader-v0.6.1-preview.1.apk" \
+          gh release create "v0.6.1" \
+            "Kontho-PDF-Reader-v0.6.1.apk" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
-            --title "Kontho PDF Reader 0.6.1 Preview 1" \
-            --prerelease \
+            --title "Kontho PDF Reader 0.6.1" \
             --notes-file release-notes.md
