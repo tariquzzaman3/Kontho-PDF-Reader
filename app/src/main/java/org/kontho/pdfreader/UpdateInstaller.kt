@@ -52,8 +52,8 @@ object UpdateInstaller {
                     Environment.DIRECTORY_DOWNLOADS,
                     "Kontho-PDF-Reader-update-$safeVersion.apk"
                 )
-                setAllowedOverMetered(true)
                 setAllowedOverRoaming(false)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) setAllowedOverMetered(true)
             }
             val downloadManager = activity.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
             val downloadId = downloadManager.enqueue(request)
@@ -166,7 +166,6 @@ object UpdateInstaller {
         }
 
         try {
-            val version = prefs.getString(PREF_UPDATE_VERSION, null) ?: "update"
             prefs.edit()
                 .putLong(PREF_INSTALL_PROMPTED_ID, id)
                 .remove(PREF_UNKNOWN_SOURCES_REQUESTED_ID)
