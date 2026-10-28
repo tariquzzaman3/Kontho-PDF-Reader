@@ -6,9 +6,9 @@ Kontho (কণ্ঠ) is an Android application built with Kotlin for reading Ba
 
 ## Download
 
-Download **Kontho PDF Reader 0.6.1** from the [GitHub Releases page](https://github.com/tariquzzaman3/Kontho-PDF-Reader/releases/tag/v0.6.1).
+Download **Kontho PDF Reader 0.6.2** from the [GitHub Releases page](https://github.com/tariquzzaman3/Kontho-PDF-Reader/releases/tag/v0.6.2), or [download the APK directly](https://github.com/tariquzzaman3/Kontho-PDF-Reader/releases/download/v0.6.2/Kontho-PDF-Reader-v0.6.2.apk).
 
-The currently published 0.6.1 APK is debug-signed and is **not a Google Play release**. Kontho 0.6.2 moves to a persistent signing key so future updates can install over the same app. Because older preview builds used temporary debug keys, moving to the persistent key may require a one-time uninstall/reinstall; uninstalling can clear Kontho’s settings and OCR cache. Keep your PDFs backed up. Bangla OCR accuracy depends on scan quality, and spoken Bangla depends on the TTS voice installed on your device. Test the app on your own PDFs before relying on it.
+This stable APK uses Kontho’s persistent release-signing key so future updates can install over the same app. Earlier builds used temporary debug signing keys, so moving to 0.6.2 may require a one-time uninstall/reinstall; uninstalling can clear Kontho’s settings and OCR cache. Keep your PDFs backed up. Kontho is distributed through GitHub and is **not a Google Play release**. Bangla OCR accuracy depends on scan quality, and spoken Bangla depends on the TTS voice installed on your device. Test the app on your own PDFs before relying on it.
 
 ## Support Kontho
 
