@@ -120,7 +120,7 @@ jobs:
           NOTES
 
           gh release create "v0.6.1-preview.1" \
-            "Kontho-PDF-Reader-v0.6.0-preview.1.apk" \
+            "Kontho-PDF-Reader-v0.6.1-preview.1.apk" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
             --title "Kontho PDF Reader 0.6.1 Preview 1" \
