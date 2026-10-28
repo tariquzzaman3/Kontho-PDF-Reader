@@ -814,8 +814,8 @@ class SettingsActivity : ComponentActivity() {
                 AlertDialog.Builder(this)
                     .setTitle(label("Kontho update available", "কণ্ঠের আপডেট পাওয়া গেছে"))
                     .setMessage(label(
-                        "Installed version: \${result.installedVersion}\\nLatest version: \${result.latestVersion}\\n\\nKontho can download the APK directly and open Android's installer when the download finishes. Android may require a one-time reinstall when moving from an older preview signed with a temporary key.",
-                        "ইনস্টল করা সংস্করণ: \${result.installedVersion}\\nসর্বশেষ সংস্করণ: \${result.latestVersion}\\n\\nকণ্ঠ সরাসরি APK ডাউনলোড করবে এবং ডাউনলোড শেষ হলে Android-এর ইনস্টলার খুলবে। অস্থায়ী কী দিয়ে সাইন করা পুরোনো প্রিভিউ থেকে আসার সময় Android একবার আনইনস্টল করে আবার ইনস্টল করতে বলতে পারে।"
+                        "Installed version: ${result.installedVersion}\nLatest version: ${result.latestVersion}\n\nKontho can download the APK directly and open Android's installer when the download finishes. Android may require a one-time reinstall when moving from an older preview signed with a temporary key.",
+                        "ইনস্টল করা সংস্করণ: ${result.installedVersion}\nসর্বশেষ সংস্করণ: ${result.latestVersion}\n\nকণ্ঠ সরাসরি APK ডাউনলোড করবে এবং ডাউনলোড শেষ হলে Android-এর ইনস্টলার খুলবে। অস্থায়ী কী দিয়ে সাইন করা পুরোনো প্রিভিউ থেকে আসার সময় Android একবার আনইনস্টল করে আবার ইনস্টল করতে বলতে পারে।"
                     ))
                     .setPositiveButton(actionLabel) { _, _ ->
                         if (!apkUrl.isNullOrBlank()) {
@@ -829,13 +829,13 @@ class SettingsActivity : ComponentActivity() {
             } else if (manual) {
                 val message = if (result.latestVersion == null) {
                     label(
-                        "Could not find a published GitHub release yet. You can still open the releases page to check available downloads. Details: \${result.errorMessage ?: "unknown error"}",
-                        "এখনো প্রকাশিত GitHub রিলিজ পাওয়া যায়নি। ডাউনলোড দেখতে রিলিজ পৃষ্ঠা খুলুন। বিবরণ: \${result.errorMessage ?: "অজানা ত্রুটি"}"
+                        "Could not find a published GitHub release yet. You can still open the releases page to check available downloads. Details: ${result.errorMessage ?: "unknown error"}",
+                        "এখনো প্রকাশিত GitHub রিলিজ পাওয়া যায়নি। ডাউনলোড দেখতে রিলিজ পৃষ্ঠা খুলুন। বিবরণ: ${result.errorMessage ?: "অজানা ত্রুটি"}"
                     )
                 } else {
                     label(
-                        "You are using version \${result.installedVersion}. The latest published GitHub release is \${result.latestVersion}.",
-                        "আপনি \${result.installedVersion} সংস্করণ ব্যবহার করছেন। GitHub-এ সর্বশেষ প্রকাশিত সংস্করণ \${result.latestVersion}।"
+                        "You are using version ${result.installedVersion}. The latest published GitHub release is ${result.latestVersion}.",
+                        "আপনি ${result.installedVersion} সংস্করণ ব্যবহার করছেন। GitHub-এ সর্বশেষ প্রকাশিত সংস্করণ ${result.latestVersion}।"
                     )
                 }
                 AlertDialog.Builder(this)
