@@ -29,6 +29,8 @@ class SettingsActivity : ComponentActivity() {
     private val prefs by lazy { getSharedPreferences("kontho_library", MODE_PRIVATE) }
     private var firstRun = false
     private var setupStep = 0
+    private val updateDownloadReceiver by lazy { UpdateDownloadReceiver(this) }
+    private var updateDownloadReceiverRegistered = false
 
     private val chooseBooks = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) {
@@ -87,6 +89,25 @@ class SettingsActivity : ComponentActivity() {
         } else {
             render()
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        UpdateInstaller.registerReceiver(this, updateDownloadReceiver)
+        updateDownloadReceiverRegistered = true
+    }
+
+    override fun onResume() {
+        super.onResume()
+        UpdateInstaller.checkPendingDownload(this)
+    }
+
+    override fun onStop() {
+        if (updateDownloadReceiverRegistered) {
+            try { unregisterReceiver(updateDownloadReceiver) } catch (_: Exception) { }
+            updateDownloadReceiverRegistered = false
+        }
+        super.onStop()
     }
 
     /**
@@ -784,25 +805,37 @@ class SettingsActivity : ComponentActivity() {
         GithubReleaseChecker.check(this) { result ->
             if (isFinishing || isDestroyed) return@check
             if (result.updateAvailable) {
+                val apkUrl = result.apkDownloadUrl
+                val actionLabel = if (!apkUrl.isNullOrBlank()) {
+                    label("Download & install", "ডাউনলোড ও ইনস্টল")
+                } else {
+                    label("Open release", "রিলিজ খুলুন")
+                }
                 AlertDialog.Builder(this)
                     .setTitle(label("Kontho update available", "কণ্ঠের আপডেট পাওয়া গেছে"))
                     .setMessage(label(
-                        "Installed version: ${result.installedVersion}\nLatest version: ${result.latestVersion}\n\nOpen the official release page to review and download it.",
-                        "ইনস্টল করা সংস্করণ: ${result.installedVersion}\nসর্বশেষ সংস্করণ: ${result.latestVersion}\n\nপর্যালোচনা ও ডাউনলোড করতে অফিসিয়াল রিলিজ পৃষ্ঠা খুলুন।"
+                        "Installed version: \${result.installedVersion}\\nLatest version: \${result.latestVersion}\\n\\nKontho can download the APK directly and open Android's installer when the download finishes. Android may require a one-time reinstall when moving from an older preview signed with a temporary key.",
+                        "ইনস্টল করা সংস্করণ: \${result.installedVersion}\\nসর্বশেষ সংস্করণ: \${result.latestVersion}\\n\\nকণ্ঠ সরাসরি APK ডাউনলোড করবে এবং ডাউনলোড শেষ হলে Android-এর ইনস্টলার খুলবে। অস্থায়ী কী দিয়ে সাইন করা পুরোনো প্রিভিউ থেকে আসার সময় Android একবার আনইনস্টল করে আবার ইনস্টল করতে বলতে পারে।"
                     ))
-                    .setPositiveButton(label("Open release", "রিলিজ খুলুন")) { _, _ -> openReleasePage(result.releaseUrl) }
+                    .setPositiveButton(actionLabel) { _, _ ->
+                        if (!apkUrl.isNullOrBlank()) {
+                            UpdateInstaller.enqueue(this, apkUrl, result.latestVersion ?: "update")
+                        } else {
+                            openReleasePage(result.releaseUrl)
+                        }
+                    }
                     .setNegativeButton(label("Later", "পরে"), null)
                     .show()
             } else if (manual) {
                 val message = if (result.latestVersion == null) {
                     label(
-                        "Could not find a published GitHub release yet. You can still open the releases page to check available downloads. Details: ${result.errorMessage ?: "unknown error"}",
-                        "এখনো প্রকাশিত GitHub রিলিজ পাওয়া যায়নি। ডাউনলোড দেখতে রিলিজ পৃষ্ঠা খুলুন। বিবরণ: ${result.errorMessage ?: "অজানা ত্রুটি"}"
+                        "Could not find a published GitHub release yet. You can still open the releases page to check available downloads. Details: \${result.errorMessage ?: "unknown error"}",
+                        "এখনো প্রকাশিত GitHub রিলিজ পাওয়া যায়নি। ডাউনলোড দেখতে রিলিজ পৃষ্ঠা খুলুন। বিবরণ: \${result.errorMessage ?: "অজানা ত্রুটি"}"
                     )
                 } else {
                     label(
-                        "You are using version ${result.installedVersion}. The latest published GitHub release is ${result.latestVersion}.",
-                        "আপনি ${result.installedVersion} সংস্করণ ব্যবহার করছেন। GitHub-এ সর্বশেষ প্রকাশিত সংস্করণ ${result.latestVersion}।"
+                        "You are using version \${result.installedVersion}. The latest published GitHub release is \${result.latestVersion}.",
+                        "আপনি \${result.installedVersion} সংস্করণ ব্যবহার করছেন। GitHub-এ সর্বশেষ প্রকাশিত সংস্করণ \${result.latestVersion}।"
                     )
                 }
                 AlertDialog.Builder(this)
