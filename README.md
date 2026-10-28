@@ -8,7 +8,7 @@ Kontho (কণ্ঠ) is an Android application built with Kotlin for reading Ba
 
 Download **Kontho PDF Reader 0.6.1** from the [GitHub Releases page](https://github.com/tariquzzaman3/Kontho-PDF-Reader/releases/tag/v0.6.1).
 
-The APK is debug-signed and intended for direct installation from GitHub. It is **not a production-signed or Google Play-ready build**. If Android prevents installation over a separately signed copy, uninstalling the old app may be necessary; uninstalling can clear Kontho's settings and OCR cache. Keep your PDFs backed up. Bangla OCR accuracy depends on scan quality, and spoken Bangla depends on the TTS voice installed on your device. Test the app on your own PDFs before relying on it.
+The currently published 0.6.1 APK is debug-signed and is **not a Google Play release**. Kontho 0.6.2 moves to a persistent signing key so future updates can install over the same app. Because older preview builds used temporary debug keys, moving to the persistent key may require a one-time uninstall/reinstall; uninstalling can clear Kontho’s settings and OCR cache. Keep your PDFs backed up. Bangla OCR accuracy depends on scan quality, and spoken Bangla depends on the TTS voice installed on your device. Test the app on your own PDFs before relying on it.
 
 ## Support Kontho
 
@@ -76,6 +76,7 @@ Speech is produced by the Android TTS engine, not by a built-in AI voice. In the
 - PDFs and recognized OCR text are handled in the app; Kontho does not upload them to an app-operated server.
 - Tesseract language models are downloaded from the public Tesseract repositories on GitHub when needed.
 - If automatic update checks are enabled, the app requests public GitHub release information. These requests do not contain PDF files or recognized OCR text.
+- When an update is available, Kontho downloads the published APK directly through Android Download Manager, shows download progress in the system notification, and opens Android’s package installer when finished. Android may ask you to allow Kontho to install apps.
 - Depending on the Android TTS engine and its settings, speech may be processed locally or by the TTS provider.
 - OCR text and language models are stored separately in app-private storage. You can clear the OCR text cache from the OCR options.
 
