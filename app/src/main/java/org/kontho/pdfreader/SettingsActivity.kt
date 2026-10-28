@@ -29,6 +29,8 @@ class SettingsActivity : ComponentActivity() {
     private val prefs by lazy { getSharedPreferences("kontho_library", MODE_PRIVATE) }
     private var firstRun = false
     private var setupStep = 0
+    private val updateDownloadReceiver by lazy { UpdateDownloadReceiver(this) }
+    private var updateDownloadReceiverRegistered = false
 
     private val chooseBooks = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) {
@@ -87,6 +89,25 @@ class SettingsActivity : ComponentActivity() {
         } else {
             render()
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        UpdateInstaller.registerReceiver(this, updateDownloadReceiver)
+        updateDownloadReceiverRegistered = true
+    }
+
+    override fun onResume() {
+        super.onResume()
+        UpdateInstaller.checkPendingDownload(this)
+    }
+
+    override fun onStop() {
+        if (updateDownloadReceiverRegistered) {
+            try { unregisterReceiver(updateDownloadReceiver) } catch (_: Exception) { }
+            updateDownloadReceiverRegistered = false
+        }
+        super.onStop()
     }
 
     /**
@@ -697,10 +718,10 @@ class SettingsActivity : ComponentActivity() {
         }
 
         addSection(label("UPDATES & ABOUT", "আপডেট ও পরিচিতি"))
-        addRow(label("About Kontho", "কণ্ঠ পরিচিতি"), label("Version 0.6.1 · Bangla PDF reader", "সংস্করণ ০.৬.১ · বাংলা PDF রিডার")) {
+        addRow(label("About Kontho", "কণ্ঠ পরিচিতি"), label("Version 0.6.2 · Bangla PDF reader", "সংস্করণ ০.৬.২ · বাংলা PDF রিডার")) {
             AlertDialog.Builder(this)
                 .setTitle("কণ্ঠ · Kontho PDF Reader")
-                .setMessage(label("Version 0.6.1\nRead PDFs, use Bengali/English OCR, and listen through Android text-to-speech.", "সংস্করণ ০.৬.১\nPDF পড়ুন, বাংলা/ইংরেজি OCR ব্যবহার করুন এবং Android-এর কণ্ঠে শুনুন।"))
+                .setMessage(label("Version 0.6.2\nRead PDFs, use Bengali/English OCR, and listen through Android text-to-speech.", "সংস্করণ ০.৬.২\nPDF পড়ুন, বাংলা/ইংরেজি OCR ব্যবহার করুন এবং Android-এর কণ্ঠে শুনুন।"))
                 .setPositiveButton(label("OK", "ঠিক আছে"), null).show()
         }
 
@@ -784,13 +805,25 @@ class SettingsActivity : ComponentActivity() {
         GithubReleaseChecker.check(this) { result ->
             if (isFinishing || isDestroyed) return@check
             if (result.updateAvailable) {
+                val apkUrl = result.apkDownloadUrl
+                val actionLabel = if (!apkUrl.isNullOrBlank()) {
+                    label("Download & install", "ডাউনলোড ও ইনস্টল")
+                } else {
+                    label("Open release", "রিলিজ খুলুন")
+                }
                 AlertDialog.Builder(this)
                     .setTitle(label("Kontho update available", "কণ্ঠের আপডেট পাওয়া গেছে"))
                     .setMessage(label(
-                        "Installed version: ${result.installedVersion}\nLatest version: ${result.latestVersion}\n\nOpen the official release page to review and download it.",
-                        "ইনস্টল করা সংস্করণ: ${result.installedVersion}\nসর্বশেষ সংস্করণ: ${result.latestVersion}\n\nপর্যালোচনা ও ডাউনলোড করতে অফিসিয়াল রিলিজ পৃষ্ঠা খুলুন।"
+                        "Installed version: ${result.installedVersion}\nLatest version: ${result.latestVersion}\n\nKontho can download the APK directly and open Android's installer when the download finishes. Android may require a one-time reinstall when moving from an older preview signed with a temporary key.",
+                        "ইনস্টল করা সংস্করণ: ${result.installedVersion}\nসর্বশেষ সংস্করণ: ${result.latestVersion}\n\nকণ্ঠ সরাসরি APK ডাউনলোড করবে এবং ডাউনলোড শেষ হলে Android-এর ইনস্টলার খুলবে। অস্থায়ী কী দিয়ে সাইন করা পুরোনো প্রিভিউ থেকে আসার সময় Android একবার আনইনস্টল করে আবার ইনস্টল করতে বলতে পারে।"
                     ))
-                    .setPositiveButton(label("Open release", "রিলিজ খুলুন")) { _, _ -> openReleasePage(result.releaseUrl) }
+                    .setPositiveButton(actionLabel) { _, _ ->
+                        if (!apkUrl.isNullOrBlank()) {
+                            UpdateInstaller.enqueue(this, apkUrl, result.latestVersion ?: "update")
+                        } else {
+                            openReleasePage(result.releaseUrl)
+                        }
+                    }
                     .setNegativeButton(label("Later", "পরে"), null)
                     .show()
             } else if (manual) {
