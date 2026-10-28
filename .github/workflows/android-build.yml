@@ -97,7 +97,7 @@ jobs:
             exit 1
           fi
           cp "$apk" "Kontho-PDF-Reader-v0.6.1-preview.1.apk"
-          test -s "Kontho-PDF-Reader-v0.6.0-preview.1.apk"
+          test -s "Kontho-PDF-Reader-v0.6.1-preview.1.apk"
 
       - name: Publish preview to GitHub Releases
         env:
