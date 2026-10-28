@@ -191,6 +191,26 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         if (!getSharedPreferences("kontho_library", MODE_PRIVATE).getBoolean("setup_done", false)) {
             startActivity(Intent(this, SettingsActivity::class.java).putExtra("first_run", true))
         }
+        handleIncomingPdfIntent(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleIncomingPdfIntent(intent)
+    }
+
+    private fun handleIncomingPdfIntent(incoming: Intent?) {
+        if (incoming?.action != Intent.ACTION_VIEW) return
+        val uri = incoming.data ?: return
+        if (uri.scheme != "content" && uri.scheme != "file") {
+            toast("Kontho can open PDF files shared by Android, but not direct web links.")
+            return
+        }
+        keepReadPermission(uri)
+        val book = Book(uri, displayName(uri))
+        rememberRecentBook(book)
+        openBook(book)
     }
 
     private fun maybeCheckForUpdatesAutomatically() {
