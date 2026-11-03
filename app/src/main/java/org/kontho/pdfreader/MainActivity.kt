@@ -2421,7 +2421,13 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                     pendingPdfComments.add(PendingPdfComment(currentPage, note))
                     refreshPdfCommentMarkers()
                     showReaderOverlays()
-                    toast("Comment added. Save it to write it into the original PDF.")
+                    toast("Comment added.")
+                    AlertDialog.Builder(this)
+                        .setTitle("Comment added")
+                        .setMessage("Your note is ready. Save it into the original PDF now, or keep reading and save later from the reader menu.")
+                        .setNegativeButton("Later", null)
+                        .setPositiveButton("Save now") { _, _ -> savePendingPdfComments() }
+                        .show()
                 }
             }
             .show()
