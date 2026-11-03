@@ -2214,6 +2214,285 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         }
     }
 
+    private fun installPageInteractions(image: ImageView, pageIndex: Int) {
+        var downX = 0f
+        var downY = 0f
+        var didMove = false
+        val slop = ViewConfiguration.get(this).scaledTouchSlop
+        image.isClickable = true
+        image.setOnClickListener { showReaderOverlays() }
+        image.setOnLongClickListener {
+            showPageTextSelectionDialog(pageIndex)
+            true
+        }
+        image.setOnTouchListener { view, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    downX = event.x
+                    downY = event.y
+                    didMove = false
+                    false
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    if (kotlin.math.abs(event.x - downX) > slop ||
+                        kotlin.math.abs(event.y - downY) > slop
+                    ) didMove = true
+                    false
+                }
+                MotionEvent.ACTION_UP -> {
+                    if (didMove || kotlin.math.abs(event.x - downX) > slop ||
+                        kotlin.math.abs(event.y - downY) > slop
+                    ) {
+                        false
+                    } else {
+                        val contentWidth = (image.width - image.paddingLeft - image.paddingRight).coerceAtLeast(1)
+                        val contentHeight = (image.height - image.paddingTop - image.paddingBottom).coerceAtLeast(1)
+                        val x = ((event.x - image.paddingLeft) / contentWidth).coerceIn(0f, 1f)
+                        val y = ((event.y - image.paddingTop) / contentHeight).coerceIn(0f, 1f)
+                        val link = pageLinksByPage[pageIndex].orEmpty()
+                            .filter { x >= it.left && x <= it.right && y >= it.top && y <= it.bottom }
+                            .minByOrNull { (it.right - it.left) * (it.bottom - it.top) }
+                        if (link != null) {
+                            confirmOpenPdfLink(link.url)
+                            true
+                        } else {
+                            false
+                        }
+                    }
+                }
+                MotionEvent.ACTION_CANCEL -> {
+                    didMove = true
+                    false
+                }
+                else -> false
+            }
+        }
+    }
+
+    private fun confirmOpenPdfLink(url: String) {
+        val safeUri = try { Uri.parse(url) } catch (_: Exception) { null }
+        if (safeUri == null || safeUri.scheme?.lowercase(Locale.ROOT) !in setOf("http", "https")) {
+            toast("This PDF link is not a supported web address.")
+            return
+        }
+        val host = safeUri.host ?: url
+        AlertDialog.Builder(this)
+            .setTitle("Open this link?")
+            .setMessage("This link points to $host. Kontho will leave the reader and open it in your default browser. Continue?")
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Open in browser") { _, _ ->
+                try {
+                    startActivity(Intent(Intent.ACTION_VIEW, safeUri).addCategory(Intent.CATEGORY_BROWSABLE))
+                } catch (_: Exception) {
+                    toast("No browser is available to open this link.")
+                }
+            }
+            .show()
+    }
+
+    private fun showPageTextSelectionDialog(pageIndex: Int) {
+        val book = currentBook ?: return
+        if (pageIndex !in 0 until pageCount) return
+        val cached = pageTextCache[pageIndex]?.takeIf { it.isNotBlank() }
+        if (cached != null) {
+            displayPageTextSelectionDialog(pageIndex, cached)
+            return
+        }
+        val generation = readerGeneration
+        setBusy("Extracting selectable text from page ${pageIndex + 1}…")
+        worker.execute {
+            try {
+                val extracted = extractText(book.uri, pageIndex + 1).trim()
+                mainHandler.post {
+                    if (generation != readerGeneration || currentBook?.uri != book.uri || showingLibrary) return@post
+                    clearBusy()
+                    if (extracted.isBlank()) {
+                        toast("This page has no selectable text. For scanned pages, run Accurate OCR read-aloud first.")
+                    } else {
+                        pageTextCache[pageIndex] = extracted
+                        if (currentPage == pageIndex) pageText = extracted
+                        displayPageTextSelectionDialog(pageIndex, extracted)
+                    }
+                }
+            } catch (error: Exception) {
+                mainHandler.post {
+                    if (generation == readerGeneration && currentBook?.uri == book.uri) {
+                        clearBusy()
+                        toast("Could not extract text: ${error.localizedMessage ?: "unknown error"}")
+                    }
+                }
+            }
+        }
+    }
+
+    private fun displayPageTextSelectionDialog(pageIndex: Int, extracted: String) {
+        val dark = preferences.getString("app_theme", "system") == "dark"
+        val textView = TextView(this).apply {
+            text = extracted
+            textSize = 15f
+            setTextColor(if (dark) Color.rgb(238, 242, 239) else Color.rgb(32, 44, 39))
+            setPadding(dp(14), dp(12), dp(14), dp(12))
+            setTextIsSelectable(true)
+            textIsSelectable = true
+        }
+        val scroll = ScrollView(this).apply {
+            isFillViewport = false
+            addView(textView, ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            ))
+        }
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("Select text · Page ${pageIndex + 1}")
+            .setMessage("Long-press and drag to select the words you need. With no selection, the whole page text is used.")
+            .setView(scroll)
+            .setNegativeButton("Define in browser", null)
+            .setNeutralButton("Copy", null)
+            .setPositiveButton("Search web", null)
+            .create()
+        dialog.setOnShowListener {
+            fun selectedText(): String {
+                val start = textView.selectionStart
+                val end = textView.selectionEnd
+                val value = textView.text.toString()
+                return if (start >= 0 && end > start && end <= value.length) {
+                    value.substring(start, end).trim()
+                } else value.trim()
+            }
+            dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
+                val selected = selectedText()
+                if (selected.isBlank()) {
+                    toast("Select some text first.")
+                } else {
+                    val clipboard = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
+                    clipboard.setPrimaryClip(ClipData.newPlainText("PDF text", selected))
+                    toast("Text copied.")
+                }
+            }
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val selected = selectedText().take(1500)
+                if (selected.isBlank()) toast("Select some text first.")
+                else openSearchInDefaultBrowser(selected, define = false)
+            }
+            dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener {
+                val selected = selectedText().take(500)
+                if (selected.isBlank()) toast("Select a word or phrase first.")
+                else openSearchInDefaultBrowser(selected, define = true)
+            }
+        }
+        dialog.show()
+    }
+
+    private fun openSearchInDefaultBrowser(query: String, define: Boolean) {
+        val search = if (define) "define: $query" else query
+        val encoded = URLEncoder.encode(search, Charsets.UTF_8.name())
+        val uri = Uri.parse("https://www.google.com/search?q=$encoded")
+        try {
+            startActivity(Intent(Intent.ACTION_VIEW, uri).addCategory(Intent.CATEGORY_BROWSABLE))
+        } catch (_: Exception) {
+            toast("No browser is available to search this text.")
+        }
+    }
+
+    private fun showAddCommentDialog() {
+        if (currentBook == null || pageCount <= 0) return
+        val input = EditText(this).apply {
+            hint = "Write a note about this page…"
+            minLines = 3
+            maxLines = 6
+            gravity = Gravity.TOP or Gravity.START
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or
+                InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Comment on page ${currentPage + 1}")
+            .setView(input)
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Add comment") { _, _ ->
+                val note = input.text.toString().trim()
+                if (note.isBlank()) {
+                    toast("Write a comment before adding it.")
+                } else if (note.length > 4000) {
+                    toast("Comments must be 4,000 characters or fewer.")
+                } else {
+                    pendingPdfComments.add(PendingPdfComment(currentPage, note))
+                    refreshPdfCommentMarkers()
+                    showReaderOverlays()
+                    toast("Comment added. Save it to write it into the original PDF.")
+                }
+            }
+            .show()
+    }
+
+    private fun refreshPdfCommentMarkers() {
+        if (pageFrames.isEmpty()) return
+        val showComments = preferences.getBoolean("show_pdf_comments", true)
+        pageFrames.forEachIndexed { pageIndex, frame ->
+            while (frame.childCount > 1) frame.removeViewAt(frame.childCount - 1)
+            if (!showComments) return@forEachIndexed
+            val saved = pageCommentsByPage[pageIndex].orEmpty()
+            val unsaved = pendingPdfComments.filter { it.pageIndex == pageIndex }.map { it.text }
+            (saved + unsaved).take(8).forEachIndexed { noteIndex, note ->
+                val marker = TextView(this).apply {
+                    text = "✎ ${noteIndex + 1}"
+                    textSize = 11f
+                    gravity = Gravity.CENTER
+                    setTextColor(Color.rgb(38, 35, 20))
+                    setPadding(dp(8), dp(4), dp(8), dp(4))
+                    background = GradientDrawable().apply {
+                        cornerRadius = dp(15).toFloat()
+                        setColor(Color.rgb(255, 230, 142))
+                        setStroke(dp(1), Color.rgb(188, 146, 48))
+                    }
+                    isClickable = true
+                    isFocusable = true
+                    contentDescription = "Open comment ${noteIndex + 1}"
+                    setOnClickListener {
+                        AlertDialog.Builder(this@MainActivity)
+                            .setTitle("Comment ${noteIndex + 1} · Page ${pageIndex + 1}")
+                            .setMessage(note)
+                            .setPositiveButton("Close", null)
+                            .show()
+                    }
+                }
+                frame.addView(marker, FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, dp(30), Gravity.TOP or Gravity.END
+                ).apply {
+                    topMargin = dp(8 + noteIndex * 34)
+                    marginEnd = dp(8)
+                })
+            }
+            val total = saved.size + unsaved.size
+            if (total > 8) {
+                val more = TextView(this).apply {
+                    text = "+${total - 8}"
+                    textSize = 10f
+                    gravity = Gravity.CENTER
+                    setTextColor(Color.WHITE)
+                    background = glassBackground()
+                }
+                frame.addView(more, FrameLayout.LayoutParams(dp(36), dp(26), Gravity.TOP or Gravity.END).apply {
+                    topMargin = dp(8 + 8 * 34)
+                    marginEnd = dp(8)
+                })
+            }
+        }
+    }
+
+    private fun applyPdfColorMode() {
+        val inverted = preferences.getBoolean("pdf_invert_colors", false)
+        val inverse = ColorMatrix(floatArrayOf(
+            -1f, 0f, 0f, 0f, 255f,
+            0f, -1f, 0f, 0f, 255f,
+            0f, 0f, -1f, 0f, 255f,
+            0f, 0f, 0f, 1f, 0f
+        ))
+        pageImages.forEach { image ->
+            image.colorFilter = if (inverted) ColorMatrixColorFilter(inverse) else null
+            (image.background as? GradientDrawable)?.setColor(if (inverted) Color.BLACK else Color.WHITE)
+        }
+    }
+
     private fun saveCurrentPageAsCover() {
         val book = currentBook ?: return
         if (pageCount <= 0) return
