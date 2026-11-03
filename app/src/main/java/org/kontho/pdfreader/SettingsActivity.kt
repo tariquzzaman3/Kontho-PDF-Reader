@@ -29,8 +29,6 @@ class SettingsActivity : ComponentActivity() {
     private val prefs by lazy { getSharedPreferences("kontho_library", MODE_PRIVATE) }
     private var firstRun = false
     private var setupStep = 0
-    private val updateDownloadReceiver by lazy { UpdateDownloadReceiver(this) }
-    private var updateDownloadReceiverRegistered = false
 
     private val chooseBooks = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) {
@@ -89,25 +87,6 @@ class SettingsActivity : ComponentActivity() {
         } else {
             render()
         }
-    }
-
-    override fun onStart() {
-        super.onStart()
-        UpdateInstaller.registerReceiver(this, updateDownloadReceiver)
-        updateDownloadReceiverRegistered = true
-    }
-
-    override fun onResume() {
-        super.onResume()
-        UpdateInstaller.checkPendingDownload(this)
-    }
-
-    override fun onStop() {
-        if (updateDownloadReceiverRegistered) {
-            try { unregisterReceiver(updateDownloadReceiver) } catch (_: Exception) { }
-            updateDownloadReceiverRegistered = false
-        }
-        super.onStop()
     }
 
     /**
@@ -718,11 +697,19 @@ class SettingsActivity : ComponentActivity() {
         }
 
         addSection(label("UPDATES & ABOUT", "আপডেট ও পরিচিতি"))
-        addRow(label("About Kontho", "কণ্ঠ পরিচিতি"), label("Version 0.6.6 · Bangla PDF reader", "সংস্করণ ০.৬.৫ · বাংলা PDF রিডার")) {
+        addRow(label("About Kontho", "কণ্ঠ পরিচিতি"), label("Version 0.6.7 · Bangla PDF reader", "সংস্করণ ০.৬.৭ · বাংলা PDF রিডার")) {
             AlertDialog.Builder(this)
                 .setTitle("কণ্ঠ · Kontho PDF Reader")
-                .setMessage(label("Version 0.6.6\nRead PDFs, use Bengali/English OCR, and listen through Android text-to-speech.", "সংস্করণ ০.৬.৫\nPDF পড়ুন, বাংলা/ইংরেজি OCR ব্যবহার করুন এবং Android-এর কণ্ঠে শুনুন।"))
+                .setMessage(label("Version 0.6.7\nRead PDFs, use Bengali/English OCR, and listen through Android text-to-speech.", "সংস্করণ ০.৬.৭\nPDF পড়ুন, বাংলা/ইংরেজি OCR ব্যবহার করুন এবং Android-এর কণ্ঠে শুনুন।"))
                 .setPositiveButton(label("OK", "ঠিক আছে"), null).show()
+        }
+
+        addRow(label("GitHub project", "GitHub প্রকল্প"), label("Source code, releases and project updates", "সোর্স কোড, রিলিজ ও প্রকল্পের আপডেট")) {
+            try {
+                startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/tariquzzaman3/Kontho-PDF-Reader")).addCategory(Intent.CATEGORY_BROWSABLE))
+            } catch (_: Exception) {
+                Toast.makeText(this, label("Could not open GitHub.", "GitHub খোলা যায়নি।"), Toast.LENGTH_LONG).show()
+            }
         }
 
         addRow(
@@ -806,31 +793,25 @@ class SettingsActivity : ComponentActivity() {
             if (isFinishing || isDestroyed) return@check
             if (result.updateAvailable) {
                 val apkUrl = result.apkDownloadUrl
-
-                // A manual update check is an explicit request to download the update.
-                // Start the APK download immediately instead of requiring a second tap.
                 if (manual && !apkUrl.isNullOrBlank()) {
-                    UpdateInstaller.enqueue(this, apkUrl, result.latestVersion ?: "update")
+                    openApkDownloadInBrowser(apkUrl)
                     return@check
                 }
 
                 val actionLabel = if (!apkUrl.isNullOrBlank()) {
-                    label("Download & install", "ডাউনলোড ও ইনস্টল")
+                    label("Download in browser", "ব্রাউজারে ডাউনলোড")
                 } else {
                     label("Open release", "রিলিজ খুলুন")
                 }
                 AlertDialog.Builder(this)
                     .setTitle(label("Kontho update available", "কণ্ঠের আপডেট পাওয়া গেছে"))
                     .setMessage(label(
-                        "Installed version: ${result.installedVersion}\nLatest version: ${result.latestVersion}\n\nKontho can download the APK directly and open Android's installer when the download finishes. Android may require a one-time reinstall when moving from an older preview signed with a temporary key.",
-                        "ইনস্টল করা সংস্করণ: ${result.installedVersion}\nসর্বশেষ সংস্করণ: ${result.latestVersion}\n\nকণ্ঠ সরাসরি APK ডাউনলোড করবে এবং ডাউনলোড শেষ হলে Android-এর ইনস্টলার খুলবে। অস্থায়ী কী দিয়ে সাইন করা পুরোনো প্রিভিউ থেকে আসার সময় Android একবার আনইনস্টল করে আবার ইনস্টল করতে বলতে পারে।"
+                        "Installed version: ${result.installedVersion}\nLatest version: ${result.latestVersion}\n\nThe APK will open in your default browser. Save it in your Downloads folder, then open the file to install the update.",
+                        "ইনস্টল করা সংস্করণ: ${result.installedVersion}\nসর্বশেষ সংস্করণ: ${result.latestVersion}\n\nAPK আপনার ডিফল্ট ব্রাউজারে খুলবে। Downloads ফোল্ডারে সংরক্ষণ করুন, তারপর ফাইলটি খুলে আপডেট ইনস্টল করুন।"
                     ))
                     .setPositiveButton(actionLabel) { _, _ ->
-                        if (!apkUrl.isNullOrBlank()) {
-                            UpdateInstaller.enqueue(this, apkUrl, result.latestVersion ?: "update")
-                        } else {
-                            openReleasePage(result.releaseUrl)
-                        }
+                        if (!apkUrl.isNullOrBlank()) openApkDownloadInBrowser(apkUrl)
+                        else openReleasePage(result.releaseUrl)
                     }
                     .setNegativeButton(label("Later", "পরে"), null)
                     .show()
@@ -853,6 +834,18 @@ class SettingsActivity : ComponentActivity() {
                     .setNegativeButton(label("Close", "বন্ধ"), null)
                     .show()
             }
+        }
+    }
+
+    private fun openApkDownloadInBrowser(url: String) {
+        if (!GithubReleaseChecker.isTrustedApkDownloadUrl(url)) {
+            Toast.makeText(this, label("The APK link is not a trusted GitHub release.", "APK লিংকটি নির্ভরযোগ্য GitHub রিলিজের নয়।"), Toast.LENGTH_LONG).show()
+            return
+        }
+        try {
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addCategory(Intent.CATEGORY_BROWSABLE))
+        } catch (_: Exception) {
+            Toast.makeText(this, label("No default browser is available.", "ডিফল্ট ব্রাউজার পাওয়া যায়নি।"), Toast.LENGTH_LONG).show()
         }
     }
 

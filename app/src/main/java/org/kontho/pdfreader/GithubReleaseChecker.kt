@@ -87,6 +87,20 @@ object GithubReleaseChecker {
         }
     }
 
+    fun isTrustedApkDownloadUrl(value: String): Boolean = try {
+        val url = URL(value)
+        url.protocol == "https" &&
+            url.host.equals("github.com", ignoreCase = true) &&
+            (url.port == -1 || url.port == 443) &&
+            url.userInfo == null &&
+            url.query == null &&
+            url.ref == null &&
+            url.path.startsWith("/tariquzzaman3/Kontho-PDF-Reader/releases/download/") &&
+            url.path.endsWith(".apk", ignoreCase = true)
+    } catch (_: Exception) {
+        false
+    }
+
     fun isNewer(latest: String, installed: String): Boolean {
         fun components(version: String): List<Int> =
             Regex("\\d+").findAll(version).mapNotNull { it.value.toIntOrNull() }.toList()

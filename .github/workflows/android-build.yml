@@ -128,9 +128,9 @@ jobs:
             exit 1
           fi
           "$APKSIGNER" verify --verbose "$apk"
-          cp "$apk" "Kontho-PDF-Reader-v0.6.6.apk"
-          test -s "Kontho-PDF-Reader-v0.6.6.apk"
-          sha256sum "Kontho-PDF-Reader-v0.6.6.apk" > "APK-SHA256SUMS.txt"
+          cp "$apk" "Kontho-PDF-Reader-v0.6.7.apk"
+          test -s "Kontho-PDF-Reader-v0.6.7.apk"
+          sha256sum "Kontho-PDF-Reader-v0.6.7.apk" > "APK-SHA256SUMS.txt"
 
       - name: Publish stable release to GitHub Releases
         env:
@@ -138,27 +138,28 @@ jobs:
         shell: bash
         run: |
           cat > release-notes.md <<'NOTES'
-          ## Kontho PDF Reader 0.6.6
+          ## Kontho PDF Reader 0.6.7
 
-          This update improves protected-PDF access, library cover sizing, text selection controls, and reader toolbar readability.
+          This update improves reader status-bar visibility, standardizes PDF covers, simplifies the reader toolbar, removes PDF comments, and changes update downloads to use the default browser.
 
           ### What's new
-          - Open password-protected PDFs with a password prompt. The password is kept in memory only while the document is open; older Android versions use a temporary app-private decrypted copy that is deleted when the reader closes.
-          - PDF cover thumbnails now preserve their page proportions as the library changes between 2, 3, and 4 columns.
-          - The extracted-text selection panel now has a visible Back action alongside Copy, Search web, and Define in browser.
-          - The PDF filename uses a high-contrast theme-aware label and remains visible independently of the three-dot menu.
+          - Visible clock and battery status icons with theme-appropriate contrast in the reader.
+          - Consistent A4 portrait cover frames across 2, 3, and 4-column library grids.
+          - More horizontal space for the PDF filename; it hides together with the three-dot reader controls so the document is unobstructed.
+          - Removed page comments, note markers, and all related menu and save options.
+          - Update downloads now open the trusted GitHub APK link in the default browser, allowing the APK to be saved in the device Downloads folder.
+          - Added the Kontho GitHub repository link to About.
 
           ### Existing features
-          - Read Bangla, English, and mixed-language PDFs with OCR.
+          - Read password-protected, Bangla, English, and mixed-language PDFs.
           - Listen to selectable PDF text or OCR-recognized text using Android text-to-speech.
           - Browse PDF folders with progressive scanning, grid/list layouts, and sorting.
-          - Manage OCR cache, reading controls, sharing, printing, page comments, and PDF copies.
-          NOTES
+          - Manage OCR cache, reading controls, sharing, printing, text selection, and PDF copies.
 
-          gh release create "v0.6.6" \
-            "Kontho-PDF-Reader-v0.6.6.apk" \
+          gh release create "v0.6.7" \
+            "Kontho-PDF-Reader-v0.6.7.apk" \
             "APK-SHA256SUMS.txt" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
-            --title "Kontho PDF Reader 0.6.6" \
+            --title "Kontho PDF Reader 0.6.7" \
             --notes-file release-notes.md

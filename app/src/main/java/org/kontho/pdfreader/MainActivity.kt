@@ -100,9 +100,6 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private val worker = Executors.newSingleThreadExecutor()
     private val thumbnailWorker = Executors.newSingleThreadExecutor()
     private val preferences by lazy { getSharedPreferences("kontho_library", MODE_PRIVATE) }
-    private val updateDownloadReceiver by lazy { UpdateDownloadReceiver(this) }
-    private var updateDownloadReceiverRegistered = false
-
     private var books: List<Book> = emptyList()
     @Volatile private var libraryScanGeneration = 0
     @Volatile private var libraryScanRunning = false
@@ -115,10 +112,6 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private var pageCount = 0
     private var pageText = ""
     private val pageLinksByPage = mutableMapOf<Int, List<PdfLinkRegion>>()
-    private val pageCommentsByPage = mutableMapOf<Int, List<String>>()
-    private val pendingPdfComments = mutableListOf<PendingPdfComment>()
-    private var savingCommentedCopy = false
-    private var afterCommentCopySaved: (() -> Unit)? = null
     private var tts: TextToSpeech? = null
     private var ttsReady = false
     private var isNarrating = false
@@ -185,13 +178,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private val createPdfCopy = registerForActivityResult(
         ActivityResultContracts.CreateDocument("application/pdf")
     ) { destination ->
-        if (destination != null) {
-            if (savingCommentedCopy) savePendingCommentsAsCopy(destination)
-            else copyCurrentBookTo(destination)
-        } else {
-            afterCommentCopySaved = null
-        }
-        savingCommentedCopy = false
+        if (destination != null) copyCurrentBookTo(destination)
     }
 
     private val chooseBookFolder = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
@@ -267,15 +254,15 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 .setTitle("কণ্ঠ · Kontho PDF Reader update")
                 .setMessage(
                     "A newer version (${result.latestVersion}) is available. " +
-                        "You have ${result.installedVersion}. Download the APK directly and Android will open its installer when the download finishes."
+                        "You have ${result.installedVersion}. Your default browser will open the APK download so you can save it in your Downloads folder."
                 )
-                .setPositiveButton("Download update") { _, _ ->
+                .setPositiveButton("Download in browser") { _, _ ->
                     val apkUrl = result.apkDownloadUrl
                     if (!apkUrl.isNullOrBlank()) {
-                        UpdateInstaller.enqueue(this, apkUrl, result.latestVersion ?: "update")
+                        openApkDownloadInBrowser(apkUrl)
                     } else {
                         try {
-                            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(result.releaseUrl ?: GithubReleaseChecker.RELEASES_URL)))
+                            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(result.releaseUrl ?: GithubReleaseChecker.RELEASES_URL)).addCategory(Intent.CATEGORY_BROWSABLE))
                         } catch (_: Exception) {
                             toast("Could not open the update page.")
                         }
@@ -286,21 +273,26 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         }
     }
 
+    private fun openApkDownloadInBrowser(url: String) {
+        if (!GithubReleaseChecker.isTrustedApkDownloadUrl(url)) {
+            toast("The APK download link is not a trusted GitHub release.")
+            return
+        }
+        try {
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addCategory(Intent.CATEGORY_BROWSABLE))
+        } catch (_: Exception) {
+            toast("No default browser is available to download the update.")
+        }
+    }
+
     private fun currentSettingsSnapshot(): String {
         val p = getSharedPreferences("kontho_library", MODE_PRIVATE)
         return listOf("app_theme", "app_language", "library_view", "grid_columns", "sort_field", "sort_descending", "book_folder_uri")
             .joinToString("|") { key -> p.all[key]?.toString() ?: "" }
     }
 
-    override fun onStart() {
-        super.onStart()
-        UpdateInstaller.registerReceiver(this, updateDownloadReceiver)
-        updateDownloadReceiverRegistered = true
-    }
-
     override fun onResume() {
         super.onResume()
-        UpdateInstaller.checkPendingDownload(this)
         maybeCheckForUpdatesAutomatically()
         applyKeepScreenAwakeFlag()
         val snapshot = currentSettingsSnapshot()
@@ -685,13 +677,31 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             setOnLongClickListener { showBookActions(book); true }
             contentDescription = "Open ${book.name}. Long press for more actions."
         }
-        val cover = ImageView(this).apply {
+        val cover: ImageView = if (listMode) {
+            ImageView(this)
+        } else {
+            object : ImageView(this) {
+                override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+                    val widthMode = View.MeasureSpec.getMode(widthMeasureSpec)
+                    val width = View.MeasureSpec.getSize(widthMeasureSpec)
+                    if (widthMode == View.MeasureSpec.UNSPECIFIED || width <= 0) {
+                        super.onMeasure(widthMeasureSpec, heightMeasureSpec)
+                    } else {
+                        // One fixed A4 portrait frame for every grid cover (210:297).
+                        val a4Height = (width * 297f / 210f).roundToInt()
+                        super.onMeasure(
+                            widthMeasureSpec,
+                            View.MeasureSpec.makeMeasureSpec(a4Height, View.MeasureSpec.EXACTLY)
+                        )
+                    }
+                }
+            }
+        }.apply {
             tag = book.uri.toString()
             setBackgroundColor(Color.rgb(238, 242, 240))
             setImageResource(android.R.drawable.ic_menu_gallery)
             scaleType = ImageView.ScaleType.FIT_CENTER
-            adjustViewBounds = true
-            maxHeight = dp(320)
+            adjustViewBounds = false
             contentDescription = "Cover of ${book.name}"
         }
         card.addView(cover, if (listMode) LinearLayout.LayoutParams(dp(64), dp(88)).apply { marginEnd = dp(10) }
@@ -801,8 +811,6 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         pageTextCache.clear()
         pageDimensions = emptyList()
         pageLinksByPage.clear()
-        pageCommentsByPage.clear()
-        pendingPdfComments.clear()
         queuedPageRenders.clear()
         releaseReaderBitmaps()
         stopReaderNarration()
@@ -860,10 +868,10 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                     }
                 }
                 if (sizes.isEmpty()) throw IOException("This PDF has no pages.")
-                val markup = try {
-                    PdfMarkupSupport.read(contentResolver, book.uri, password)
+                val linkSnapshot = try {
+                    PdfLinkSupport.read(contentResolver, book.uri, password)
                 } catch (_: Exception) {
-                    PdfMarkupSnapshot(emptyMap(), emptyMap())
+                    PdfLinkSnapshot(emptyMap())
                 }
 
                 runOnUiThread {
@@ -871,9 +879,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                     pageDimensions = sizes
                     pageCount = sizes.size
                     pageLinksByPage.clear()
-                    pageLinksByPage.putAll(markup.linksByPage)
-                    pageCommentsByPage.clear()
-                    pageCommentsByPage.putAll(markup.commentsByPage)
+                    pageLinksByPage.putAll(linkSnapshot.linksByPage)
                     val restore = initialPage.coerceIn(0, (sizes.size - 1).coerceAtLeast(0))
                     currentPage = restore
                     buildContinuousPages(generation, restore)
@@ -902,13 +908,19 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         }
         applyKeepScreenAwakeFlag()
         WindowCompat.setDecorFitsSystemWindows(window, false)
+        window.clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
+        window.statusBarColor = if (dark) Color.rgb(34, 38, 36) else Color.rgb(221, 225, 222)
+        window.navigationBarColor = if (dark) Color.rgb(34, 38, 36) else Color.rgb(221, 225, 222)
         window.decorView.systemUiVisibility = (
             View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
             View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or
             View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or
             View.SYSTEM_UI_FLAG_LAYOUT_STABLE
         )
-        WindowInsetsControllerCompat(window, window.decorView).isAppearanceLightStatusBars = !dark
+        WindowInsetsControllerCompat(window, window.decorView).apply {
+            isAppearanceLightStatusBars = !dark
+            show(WindowInsetsCompat.Type.statusBars())
+        }
 
         val root = object : FrameLayout(this) {
             override fun dispatchTouchEvent(event: MotionEvent): Boolean {
@@ -970,7 +982,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         ).apply {
             topMargin = dp(16)
             leftMargin = dp(10)
-            rightMargin = dp(78)
+            rightMargin = dp(66)
         })
 
         readerMenuButton = TextView(this).apply {
@@ -1420,7 +1432,6 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         }
         currentPage = restorePage.coerceIn(0, (pageDimensions.size - 1).coerceAtLeast(0))
         pageText = pageTextCache[currentPage].orEmpty()
-        refreshPdfCommentMarkers()
         applyPdfColorMode()
         updatePageScrubberLabel()
         if (pageDimensions.isNotEmpty()) setBusy("Loading PDF page ${currentPage + 1}…")
@@ -1560,6 +1571,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private fun hideReaderOverlays() {
         if (!::readerMenuButton.isInitialized) return
         readerMenuButton.visibility = View.GONE
+        if (::readerPageTitle.isInitialized) readerPageTitle.visibility = View.GONE
         if (::pageScrubber.isInitialized) pageScrubber.visibility = View.GONE
         readerPlaybackPanel.visibility = if (isNarrating || narrationPaused) View.VISIBLE else View.GONE
     }
@@ -1795,20 +1807,6 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         addAction(label("Select text · copy / search", "লেখা বাছাই · কপি / খুঁজুন"), {
             showPageTextSelectionDialog(currentPage)
         })
-        addAction(label("Add comment to this page", "এই পাতায় মন্তব্য যোগ করুন"), {
-            showAddCommentDialog()
-        })
-        val commentsVisible = preferences.getBoolean("show_pdf_comments", true)
-        addAction(
-            label(
-                if (commentsVisible) "Hide comments" else "Show comments",
-                if (commentsVisible) "মন্তব্য লুকান" else "মন্তব্য দেখান"
-            ),
-            {
-                preferences.edit().putBoolean("show_pdf_comments", !commentsVisible).apply()
-                refreshPdfCommentMarkers()
-            }
-        )
         val inverted = preferences.getBoolean("pdf_invert_colors", false)
         addAction(
             label(
@@ -1820,11 +1818,6 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 applyPdfColorMode()
             }
         )
-        if (pendingPdfComments.isNotEmpty()) {
-            addAction(label("Save comments to original PDF", "মন্তব্য মূল PDF-এ সংরক্ষণ করুন"), {
-                savePendingPdfComments()
-            })
-        }
         addAction(label("Rotate screen", "স্ক্রিন ঘোরান"), { rotateReaderScreen() })
         val keepScreenAwake = preferences.getBoolean(KEY_KEEP_SCREEN_AWAKE, false)
         addAction(
@@ -2453,98 +2446,6 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             startActivity(Intent(Intent.ACTION_VIEW, uri).addCategory(Intent.CATEGORY_BROWSABLE))
         } catch (_: Exception) {
             toast("No browser is available to search this text.")
-        }
-    }
-
-    private fun showAddCommentDialog() {
-        if (currentBook == null || pageCount <= 0) return
-        val input = EditText(this).apply {
-            hint = "Write a note about this page…"
-            minLines = 3
-            maxLines = 6
-            gravity = Gravity.TOP or Gravity.START
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or
-                InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
-            setPadding(dp(12), dp(10), dp(12), dp(10))
-        }
-        AlertDialog.Builder(this)
-            .setTitle("Comment on page ${currentPage + 1}")
-            .setView(input)
-            .setNegativeButton("Cancel", null)
-            .setPositiveButton("Add comment") { _, _ ->
-                val note = input.text.toString().trim()
-                if (note.isBlank()) {
-                    toast("Write a comment before adding it.")
-                } else if (note.length > 4000) {
-                    toast("Comments must be 4,000 characters or fewer.")
-                } else {
-                    pendingPdfComments.add(PendingPdfComment(currentPage, note))
-                    refreshPdfCommentMarkers()
-                    showReaderOverlays()
-                    toast("Comment added.")
-                    AlertDialog.Builder(this)
-                        .setTitle("Comment added")
-                        .setMessage("Your note is ready. Save it into the original PDF now, or keep reading and save later from the reader menu.")
-                        .setNegativeButton("Later", null)
-                        .setPositiveButton("Save now") { _, _ -> savePendingPdfComments() }
-                        .show()
-                }
-            }
-            .show()
-    }
-
-    private fun refreshPdfCommentMarkers() {
-        if (pageFrames.isEmpty()) return
-        val showComments = preferences.getBoolean("show_pdf_comments", true)
-        pageFrames.forEachIndexed { pageIndex, frame ->
-            while (frame.childCount > 1) frame.removeViewAt(frame.childCount - 1)
-            if (!showComments) return@forEachIndexed
-            val saved = pageCommentsByPage[pageIndex].orEmpty()
-            val unsaved = pendingPdfComments.filter { it.pageIndex == pageIndex }.map { it.text }
-            (saved + unsaved).take(8).forEachIndexed { noteIndex, note ->
-                val marker = TextView(this).apply {
-                    text = "✎ ${noteIndex + 1}"
-                    textSize = 11f
-                    gravity = Gravity.CENTER
-                    setTextColor(Color.rgb(38, 35, 20))
-                    setPadding(dp(8), dp(4), dp(8), dp(4))
-                    background = GradientDrawable().apply {
-                        cornerRadius = dp(15).toFloat()
-                        setColor(Color.rgb(255, 230, 142))
-                        setStroke(dp(1), Color.rgb(188, 146, 48))
-                    }
-                    isClickable = true
-                    isFocusable = true
-                    contentDescription = "Open comment ${noteIndex + 1}"
-                    setOnClickListener {
-                        AlertDialog.Builder(this@MainActivity)
-                            .setTitle("Comment ${noteIndex + 1} · Page ${pageIndex + 1}")
-                            .setMessage(note)
-                            .setPositiveButton("Close", null)
-                            .show()
-                    }
-                }
-                frame.addView(marker, FrameLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT, dp(30), Gravity.TOP or Gravity.END
-                ).apply {
-                    topMargin = dp(8 + noteIndex * 34)
-                    marginEnd = dp(8)
-                })
-            }
-            val total = saved.size + unsaved.size
-            if (total > 8) {
-                val more = TextView(this).apply {
-                    text = "+${total - 8}"
-                    textSize = 10f
-                    gravity = Gravity.CENTER
-                    setTextColor(Color.WHITE)
-                    background = glassBackground()
-                }
-                frame.addView(more, FrameLayout.LayoutParams(dp(36), dp(26), Gravity.TOP or Gravity.END).apply {
-                    topMargin = dp(8 + 8 * 34)
-                    marginEnd = dp(8)
-                })
-            }
         }
     }
 
@@ -3592,10 +3493,6 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     }
 
     override fun onStop() {
-        if (updateDownloadReceiverRegistered) {
-            try { unregisterReceiver(updateDownloadReceiver) } catch (_: Exception) { }
-            updateDownloadReceiverRegistered = false
-        }
         if (!preferences.getBoolean("read_aloud_background", false)) {
             stopReaderNarration()
         }
@@ -3624,99 +3521,6 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             .show()
     }
 
-    private fun savePendingPdfComments(afterSaved: (() -> Unit)? = null) {
-        val book = currentBook ?: return
-        val comments = pendingPdfComments.toList()
-        if (comments.isEmpty()) {
-            afterSaved?.invoke()
-            return
-        }
-        val canReplace = try {
-            DocumentFile.fromSingleUri(this, book.uri)?.canWrite() == true
-        } catch (_: Exception) {
-            false
-        }
-        if (!canReplace) {
-            afterCommentCopySaved = afterSaved
-            AlertDialog.Builder(this)
-                .setTitle("Original PDF is read-only")
-                .setMessage("Android has not granted Kontho permission to replace this file. You can save a new PDF containing the comments instead; the original will remain unchanged.")
-                .setNegativeButton("Cancel") { _, _ -> afterCommentCopySaved = null }
-                .setPositiveButton("Save commented copy") { _, _ ->
-                    savingCommentedCopy = true
-                    val filename = book.name.removeSuffixIgnoreCase(".pdf") + " - commented.pdf"
-                    createPdfCopy.launch(filename)
-                }
-                .show()
-            return
-        }
-
-        val pageToRestore = currentPage
-        readerGeneration++
-        queuedPageRenders.clear()
-        setBusy("Saving comments into the original PDF…")
-        worker.execute {
-            try {
-                // Release PdfRenderer's descriptor before the document provider
-                // replaces the selected file.
-                closeCurrentRenderer()
-                PdfMarkupSupport.saveComments(
-                    contentResolver, book.uri, book.uri, cacheDir, comments
-                )
-                mainHandler.post {
-                    clearBusy()
-                    pendingPdfComments.clear()
-                    toast("Comments saved into the original PDF.")
-                    if (afterSaved != null) afterSaved()
-                    else openBook(book, pageToRestore)
-                }
-            } catch (error: Exception) {
-                mainHandler.post {
-                    clearBusy()
-                    toast("Could not save comments: ${error.localizedMessage ?: "unknown error"}")
-                    // Keep the notes editable after a failed save attempt.
-                    openBook(book, pageToRestore)
-                    pendingPdfComments.addAll(comments)
-                }
-            }
-        }
-    }
-
-    private fun savePendingCommentsAsCopy(destination: Uri) {
-        val book = currentBook ?: run {
-            afterCommentCopySaved = null
-            return
-        }
-        val comments = pendingPdfComments.toList()
-        if (comments.isEmpty()) {
-            afterCommentCopySaved = null
-            return
-        }
-        setBusy("Saving commented PDF copy…")
-        worker.execute {
-            try {
-                PdfMarkupSupport.saveComments(
-                    contentResolver, book.uri, destination, cacheDir, comments
-                )
-                mainHandler.post {
-                    clearBusy()
-                    pendingPdfComments.clear()
-                    refreshPdfCommentMarkers()
-                    toast("Commented PDF copy saved. The original file was not changed.")
-                    val completion = afterCommentCopySaved
-                    afterCommentCopySaved = null
-                    completion?.invoke()
-                }
-            } catch (error: Exception) {
-                mainHandler.post {
-                    clearBusy()
-                    afterCommentCopySaved = null
-                    toast("Could not save commented copy: ${error.localizedMessage ?: "unknown error"}")
-                }
-            }
-        }
-    }
-
     private fun performLeaveCurrentPdf() {
         val uri = currentBook?.uri
         if (uri != null && !preferences.getBoolean("ocr_keep_cache", true)) {
@@ -3731,22 +3535,6 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     }
 
     private fun leaveCurrentPdf() {
-        if (pendingPdfComments.isNotEmpty()) {
-            AlertDialog.Builder(this)
-                .setTitle("Unsaved PDF comments")
-                .setMessage("You have comments that are not yet written into the PDF. Save them before leaving?")
-                .setNegativeButton("Keep reading", null)
-                .setNeutralButton("Discard and leave") { _, _ ->
-                    pendingPdfComments.clear()
-                    refreshPdfCommentMarkers()
-                    performLeaveCurrentPdf()
-                }
-                .setPositiveButton("Save and leave") { _, _ ->
-                    savePendingPdfComments { performLeaveCurrentPdf() }
-                }
-                .show()
-            return
-        }
         performLeaveCurrentPdf()
     }
 
