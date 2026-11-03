@@ -86,6 +86,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private var updateDownloadReceiverRegistered = false
 
     private var books: List<Book> = emptyList()
+    @Volatile private var libraryScanGeneration = 0
     private var currentBook: Book? = null
     private var fileDescriptor: ParcelFileDescriptor? = null
     private var pdfRenderer: PdfRenderer? = null
@@ -500,32 +501,40 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
     private fun refreshLibrary() {
         if (!::libraryGrid.isInitialized || !showingLibrary) return
-        if (::librarySwipe.isInitialized) librarySwipe.isRefreshing = false
+        val generation = ++libraryScanGeneration
         setBusy(if (preferences.getString(KEY_BOOK_FOLDER, null).isNullOrBlank()) "Finding recent books…" else "Scanning PDF folder…")
         worker.execute {
             val found = LinkedHashMap<String, Book>()
-            val recentUris = preferences.getStringSet(KEY_RECENT_BOOKS, emptySet())?.toList().orEmpty()
-            recentUris.forEach { value ->
+            preferences.getStringSet(KEY_RECENT_BOOKS, emptySet()).orEmpty().forEach { value ->
+                if (generation != libraryScanGeneration) return@execute
                 try {
                     val uri = Uri.parse(value)
-                    val name = preferences.getString(recentNameKey(uri), null) ?: displayName(uri)
-                    found[value] = Book(uri, name)
+                    found[value] = Book(uri, preferences.getString(recentNameKey(uri), null) ?: displayName(uri))
                 } catch (_: Exception) {
-                    // Ignore inaccessible old entries.
+                    // Ignore recent entries that are no longer accessible.
+                }
+            }
+
+            mainHandler.post {
+                if (generation == libraryScanGeneration && showingLibrary) {
+                    books = found.values.toList()
+                    renderBookGrid()
                 }
             }
 
             val folderValue = preferences.getString(KEY_BOOK_FOLDER, null)
-            if (!folderValue.isNullOrBlank()) {
-                setBusy("Finding books in selected folder…")
+            if (!folderValue.isNullOrBlank() && generation == libraryScanGeneration) {
                 try {
                     val folder = DocumentFile.fromTreeUri(this, Uri.parse(folderValue))
-                    if (folder != null && folder.canRead()) collectPdfBooks(folder, found, 0)
+                    if (folder != null && folder.canRead()) collectPdfBooks(folder, found, 0, generation)
+                } catch (_: SecurityException) {
+                    // The saved folder permission may need to be granted again.
                 } catch (_: Exception) {
-                    // The user may have to grant the folder again in Settings.
+                    // Keep the recent books visible if this document provider fails.
                 }
             }
 
+            if (generation != libraryScanGeneration) return@execute
             val field = preferences.getString("sort_field", "name") ?: "name"
             val descending = preferences.getBoolean("sort_descending", false)
             val comparator = if (field == "date") compareBy<Book> { modifiedFor(it.uri) }
@@ -533,32 +542,50 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             val sorted = if (descending) found.values.sortedWith(comparator.reversed())
                 else found.values.sortedWith(comparator)
 
-            runOnUiThread {
+            mainHandler.post {
+                if (generation != libraryScanGeneration) return@post
                 if (!showingLibrary) {
                     if (::librarySwipe.isInitialized) librarySwipe.isRefreshing = false
                     clearBusy()
-                    return@runOnUiThread
+                    return@post
                 }
                 books = sorted
-                renderBookGrid()
+                if (sorted.isEmpty()) renderBookGrid() else reorderBookCards(sorted)
                 if (::librarySwipe.isInitialized) librarySwipe.isRefreshing = false
                 clearBusy()
             }
         }
     }
 
-    private fun collectPdfBooks(folder: DocumentFile, found: LinkedHashMap<String, Book>, depth: Int) {
-        if (depth > 10) return
+    private fun collectPdfBooks(
+        folder: DocumentFile,
+        found: LinkedHashMap<String, Book>,
+        depth: Int,
+        generation: Int
+    ) {
+        if (depth > 10 || generation != libraryScanGeneration) return
         for (file in folder.listFiles()) {
+            if (generation != libraryScanGeneration) return
             try {
                 if (file.isDirectory) {
-                    collectPdfBooks(file, found, depth + 1)
+                    collectPdfBooks(file, found, depth + 1, generation)
                 } else if (file.isFile && isPdf(file)) {
                     val uri = file.uri
-                    found[uri.toString()] = Book(uri, file.name ?: "Untitled book.pdf")
+                    val key = uri.toString()
+                    val book = Book(uri, file.name ?: "Untitled book.pdf")
+                    found[key] = book
+                    if (found.size > 0) {
+                        mainHandler.post {
+                            if (generation == libraryScanGeneration && showingLibrary && books.none { it.uri == uri }) {
+                                books = books + book
+                                appendBookCard(book)
+                                if (books.size % 10 == 0) setBusy("Found ${books.size} PDF files…")
+                            }
+                        }
+                    }
                 }
             } catch (_: SecurityException) {
-                // Skip folders the selected document provider does not permit us to read.
+                // Skip items this document provider does not allow us to read.
             }
         }
     }
@@ -571,7 +598,6 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private fun renderBookGrid() {
         if (!::libraryGrid.isInitialized || !showingLibrary) return
         libraryGrid.removeAllViews()
-
         if (books.isEmpty()) {
             val dark = preferences.getString("app_theme", "system") == "dark"
             val bn = preferences.getString("app_language", "en") == "bn"
@@ -590,73 +616,91 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             })
             return
         }
+        books.forEach { addBookCard(it) }
+    }
 
-        books.forEach { book ->
-            val darkCard = when (preferences.getString("app_theme", "system")) {
-                "dark" -> true
-                "light" -> false
-                else -> (resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
-            }
-            val card = LinearLayout(this).apply {
-                orientation = if (getSharedPreferences("kontho_library", MODE_PRIVATE).getString("library_view", "grid") == "list") LinearLayout.HORIZONTAL else LinearLayout.VERTICAL
-                setPadding(dp(8), dp(5), dp(8), dp(5))
-                background = GradientDrawable().apply {
-                    setColor(if (darkCard) Color.rgb(39, 47, 44) else Color.WHITE)
-                    cornerRadius = dp(10).toFloat()
-                    setStroke(dp(1), if (darkCard) Color.rgb(70, 84, 78) else Color.rgb(225, 232, 229))
-                }
-                elevation = dp(1).toFloat()
-                isClickable = true
-                isFocusable = true
-                setOnClickListener { openBook(book) }
-                setOnLongClickListener { showBookActions(book); true }
-                contentDescription = "Open ${book.name}. Long press for more actions."
-            }
+    private fun appendBookCard(book: Book) {
+        if (!::libraryGrid.isInitialized || !showingLibrary) return
+        if (books.size == 1) libraryGrid.removeAllViews()
+        addBookCard(book)
+    }
 
-            val listMode = getSharedPreferences("kontho_library", MODE_PRIVATE).getString("library_view", "grid") == "list"
-            val cover = ImageView(this).apply {
-                tag = book.uri.toString()
-                setBackgroundColor(Color.rgb(238, 242, 240))
-                setImageResource(android.R.drawable.ic_menu_gallery)
-                scaleType = ImageView.ScaleType.FIT_CENTER
-                adjustViewBounds = !listMode
-                contentDescription = "Cover of ${book.name}"
+    private fun addBookCard(book: Book) {
+        val darkCard = when (preferences.getString("app_theme", "system")) {
+            "dark" -> true
+            "light" -> false
+            else -> (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+        }
+        val listMode = preferences.getString("library_view", "grid") == "list"
+        val card = LinearLayout(this).apply {
+            tag = book.uri.toString()
+            orientation = if (listMode) LinearLayout.HORIZONTAL else LinearLayout.VERTICAL
+            setPadding(dp(8), dp(5), dp(8), dp(5))
+            background = GradientDrawable().apply {
+                setColor(if (darkCard) Color.rgb(39, 47, 44) else Color.WHITE)
+                cornerRadius = dp(10).toFloat()
+                setStroke(dp(1), if (darkCard) Color.rgb(70, 84, 78) else Color.rgb(225, 232, 229))
             }
-            card.addView(cover, if (listMode) LinearLayout.LayoutParams(dp(64), dp(88)).apply { marginEnd = dp(10) }
-                else LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+            elevation = dp(1).toFloat()
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { openBook(book) }
+            setOnLongClickListener { showBookActions(book); true }
+            contentDescription = "Open ${book.name}. Long press for more actions."
+        }
+        val cover = ImageView(this).apply {
+            tag = book.uri.toString()
+            setBackgroundColor(Color.rgb(238, 242, 240))
+            setImageResource(android.R.drawable.ic_menu_gallery)
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            adjustViewBounds = !listMode
+            contentDescription = "Cover of ${book.name}"
+        }
+        card.addView(cover, if (listMode) LinearLayout.LayoutParams(dp(64), dp(88)).apply { marginEnd = dp(10) }
+            else LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        val title = TextView(this).apply {
+            text = book.name.removeSuffixIgnoreCase(".pdf")
+            tag = "book_title"
+            textSize = 14f
+            setTextColor(if (darkCard) Color.rgb(235, 242, 238) else Color.rgb(28, 43, 39))
+            typeface = Typeface.DEFAULT_BOLD
+            maxLines = 2
+            ellipsize = android.text.TextUtils.TruncateAt.END
+            setPadding(dp(2), dp(8), dp(2), 0)
+        }
+        if (listMode) {
+            val info = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(title, matchWrap())
+            }
+            card.addView(info, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            libraryGrid.addView(card, GridLayout.LayoutParams().apply {
+                width = ViewGroup.LayoutParams.MATCH_PARENT
+                height = ViewGroup.LayoutParams.WRAP_CONTENT
+                columnSpec = GridLayout.spec(0, 1)
+                setMargins(dp(2), dp(3), dp(2), dp(3))
+            })
+        } else {
+            card.addView(title, matchWrap())
+            libraryGrid.addView(card, GridLayout.LayoutParams().apply {
+                width = 0
+                height = ViewGroup.LayoutParams.WRAP_CONTENT
+                columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f)
+                setMargins(dp(4), dp(4), dp(4), dp(8))
+            })
+        }
+        loadCoverThumbnail(book, cover)
+    }
 
-            val title = TextView(this).apply {
-                text = book.name.removeSuffixIgnoreCase(".pdf")
-                textSize = 14f
-                setTextColor(if (darkCard) Color.rgb(235, 242, 238) else Color.rgb(28, 43, 39))
-                typeface = Typeface.DEFAULT_BOLD
-                maxLines = 2
-                ellipsize = android.text.TextUtils.TruncateAt.END
-                setPadding(dp(2), dp(8), dp(2), 0)
-            }
-            if (listMode) {
-                val info = LinearLayout(this).apply {
-                    orientation = LinearLayout.VERTICAL
-                    addView(title, matchWrap())
-                }
-                card.addView(info, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-                libraryGrid.addView(card, GridLayout.LayoutParams().apply {
-                    width = ViewGroup.LayoutParams.MATCH_PARENT
-                    height = ViewGroup.LayoutParams.WRAP_CONTENT
-                    columnSpec = GridLayout.spec(0, 1)
-                    setMargins(dp(2), dp(3), dp(2), dp(3))
-                })
-            } else {
-                card.addView(title, matchWrap())
-                val params = GridLayout.LayoutParams().apply {
-                    width = 0
-                    height = ViewGroup.LayoutParams.WRAP_CONTENT
-                    columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f)
-                    setMargins(dp(4), dp(4), dp(4), dp(8))
-                }
-                libraryGrid.addView(card, params)
-            }
-            loadCoverThumbnail(book, cover)
+    private fun reorderBookCards(sortedBooks: List<Book>) {
+        val cards = (0 until libraryGrid.childCount).mapNotNull { index ->
+            libraryGrid.getChildAt(index).takeIf { it.tag is String }?.let { it.tag as String to it }
+        }.toMap()
+        libraryGrid.removeAllViews()
+        sortedBooks.forEach { book ->
+            val card = cards[book.uri.toString()] ?: return@forEach
+            libraryGrid.addView(card, card.layoutParams as GridLayout.LayoutParams)
+            card.findViewWithTag<TextView>("book_title")?.text = book.name.removeSuffixIgnoreCase(".pdf")
         }
     }
 
