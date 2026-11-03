@@ -112,7 +112,7 @@ The expected output paths are:
 - Debug APK: `app/build/outputs/apk/debug/app-debug.apk`
 - Release Android App Bundle: `app/build/outputs/bundle/release/app-release.aab`
 
-GitHub Actions is configured to build and upload both artifacts. A release bundle is signed only when the required `ANDROID_UPLOAD_*` GitHub Actions secrets are configured; an unsigned bundle must not be submitted to Google Play.
+GitHub Actions builds and uploads a debug APK and a release AAB for build inspection. The installable, signed APK is published separately on the GitHub Releases page.
 
 ## Project status and release preparation
 
