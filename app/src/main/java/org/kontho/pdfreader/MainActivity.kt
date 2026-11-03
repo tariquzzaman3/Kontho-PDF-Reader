@@ -87,6 +87,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
     private var books: List<Book> = emptyList()
     @Volatile private var libraryScanGeneration = 0
+    @Volatile private var libraryScanRunning = false
     private var currentBook: Book? = null
     private var fileDescriptor: ParcelFileDescriptor? = null
     private var pdfRenderer: PdfRenderer? = null
@@ -502,6 +503,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private fun refreshLibrary() {
         if (!::libraryGrid.isInitialized || !showingLibrary) return
         val generation = ++libraryScanGeneration
+        libraryScanRunning = true
         setBusy(if (preferences.getString(KEY_BOOK_FOLDER, null).isNullOrBlank()) "Finding recent books…" else "Scanning PDF folder…")
         worker.execute {
             val found = LinkedHashMap<String, Book>()
@@ -541,6 +543,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 else compareBy(String.CASE_INSENSITIVE_ORDER) { it.name }
             val sorted = if (descending) found.values.sortedWith(comparator.reversed())
                 else found.values.sortedWith(comparator)
+            libraryScanRunning = false
 
             mainHandler.post {
                 if (generation != libraryScanGeneration) return@post
@@ -574,13 +577,11 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                     val key = uri.toString()
                     val book = Book(uri, file.name ?: "Untitled book.pdf")
                     found[key] = book
-                    if (found.size > 0) {
-                        mainHandler.post {
-                            if (generation == libraryScanGeneration && showingLibrary && books.none { it.uri == uri }) {
-                                books = books + book
-                                appendBookCard(book)
-                                if (books.size % 10 == 0) setBusy("Found ${books.size} PDF files…")
-                            }
+                    mainHandler.post {
+                        if (generation == libraryScanGeneration && showingLibrary && books.none { it.uri == uri }) {
+                            books = books + book
+                            appendBookCard(book)
+                            if (books.size % 10 == 0) setBusy("Found ${books.size} PDF files…")
                         }
                     }
                 }
@@ -749,6 +750,11 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     }
 
     private fun openBook(book: Book) {
+        if (libraryScanRunning) {
+            libraryScanGeneration++
+            libraryScanRunning = false
+            pendingFolderScan = true
+        }
         val previousUri = currentBook?.uri
         if (previousUri != null && previousUri != book.uri &&
             !preferences.getBoolean("ocr_keep_cache", true)
@@ -2884,6 +2890,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             currentBook?.uri?.let { removeOcrCacheForUri(it) }
         }
         readerGeneration++
+        libraryScanGeneration++
+        libraryScanRunning = false
         mainHandler.removeCallbacks(hideReaderOverlaysRunnable)
         progressAnimator?.cancel()
         progressAnimator = null
