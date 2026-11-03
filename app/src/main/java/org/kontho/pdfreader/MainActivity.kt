@@ -206,7 +206,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         }
         setTheme(if (dark) android.R.style.Theme_Material_NoActionBar else android.R.style.Theme_Material_Light_NoActionBar)
         super.onCreate(savedInstanceState)
-        window.statusBarColor = if (dark) Color.rgb(20, 28, 26) else Color.rgb(18, 76, 66)
+        window.statusBarColor = Color.rgb(112, 119, 116)
         window.navigationBarColor = window.statusBarColor
         PDFBoxResourceLoader.init(applicationContext)
         tts = TextToSpeech(this, this)
@@ -294,9 +294,24 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             return
         }
         try {
-            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addCategory(Intent.CATEGORY_BROWSABLE))
+            val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+                addCategory(Intent.CATEGORY_BROWSABLE)
+            }
+            // Resolve the user's default HTTPS browser explicitly. The browser,
+            // rather than Kontho's private storage, handles the APK download.
+            val browserPackage = packageManager.resolveActivity(
+                browserIntent,
+                android.content.pm.PackageManager.MATCH_DEFAULT_ONLY
+            )?.activityInfo?.packageName
+            if (!browserPackage.isNullOrBlank() &&
+                browserPackage != "android" &&
+                browserPackage != packageName
+            ) {
+                browserIntent.setPackage(browserPackage)
+            }
+            startActivity(browserIntent)
         } catch (_: Exception) {
-            toast("No default browser is available to download the update.")
+            toast("Could not open your default browser to download the APK.")
         }
     }
 
@@ -342,11 +357,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
-        window.statusBarColor = if (preferences.getString("app_theme", "system") == "dark") {
-            Color.rgb(20, 28, 26)
-        } else {
-            Color.rgb(18, 76, 66)
-        }
+        window.statusBarColor = Color.rgb(112, 119, 116)
         window.navigationBarColor = window.statusBarColor
         if (showingLibrary) {
             val cachedBooks = books
@@ -385,9 +396,9 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         val appLanguage = prefs.getString("app_language", "en") == "bn"
         setTheme(if (dark) android.R.style.Theme_Material_NoActionBar else android.R.style.Theme_Material_Light_NoActionBar)
         fun label(en: String, bn: String) = if (appLanguage) bn else en
-        window.statusBarColor = if (dark) Color.rgb(20, 28, 26) else Color.rgb(18, 76, 66)
+        window.statusBarColor = Color.rgb(112, 119, 116)
         window.navigationBarColor = window.statusBarColor
-        WindowInsetsControllerCompat(window, window.decorView).isAppearanceLightStatusBars = !dark
+        WindowInsetsControllerCompat(window, window.decorView).isAppearanceLightStatusBars = false
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -461,7 +472,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         val columns = if (prefs.getString("library_view", "grid") == "list") {
             1
         } else {
-            prefs.getInt("grid_columns", 2).coerceIn(2, 4)
+            prefs.getInt("grid_columns", 2).coerceIn(1, 10)
         }
         libraryGrid = GridLayout(this).apply {
             columnCount = columns
@@ -676,10 +687,17 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             else -> (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
         }
         val listMode = preferences.getString("library_view", "grid") == "list"
+        val gridColumns = if (listMode) 1 else preferences.getInt("grid_columns", 2).coerceIn(1, 10)
+        val cardHorizontalPadding = if (listMode) 8 else when {
+            gridColumns >= 8 -> 1
+            gridColumns >= 5 -> 3
+            else -> 8
+        }
+        val cardVerticalPadding = if (listMode) 5 else if (gridColumns >= 8) 2 else 5
         val card = LinearLayout(this).apply {
             tag = book.uri.toString()
             orientation = if (listMode) LinearLayout.HORIZONTAL else LinearLayout.VERTICAL
-            setPadding(dp(8), dp(5), dp(8), dp(5))
+            setPadding(dp(cardHorizontalPadding), dp(cardVerticalPadding), dp(cardHorizontalPadding), dp(cardVerticalPadding))
             background = GradientDrawable().apply {
                 setColor(if (darkCard) Color.rgb(39, 47, 44) else Color.WHITE)
                 cornerRadius = dp(10).toFloat()
@@ -724,12 +742,29 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         val title = TextView(this).apply {
             text = book.name.removeSuffixIgnoreCase(".pdf")
             tag = "book_title"
-            textSize = 14f
+            textSize = if (listMode) 14f else when {
+                gridColumns >= 9 -> 8f
+                gridColumns >= 7 -> 9f
+                gridColumns >= 5 -> 11f
+                else -> 14f
+            }
             setTextColor(if (darkCard) Color.rgb(235, 242, 238) else Color.rgb(28, 43, 39))
             typeface = Typeface.DEFAULT_BOLD
+            minLines = 2
             maxLines = 2
+            gravity = if (!listMode && gridColumns >= 8) Gravity.CENTER else Gravity.START or Gravity.CENTER_VERTICAL
             ellipsize = android.text.TextUtils.TruncateAt.END
-            setPadding(dp(2), dp(8), dp(2), 0)
+            setPadding(dp(2), dp(if (!listMode && gridColumns >= 8) 1 else 4), dp(2), 0)
+        }
+        val gridTitleHeight = when {
+            gridColumns >= 8 -> dp(32)
+            gridColumns >= 5 -> dp(38)
+            else -> dp(44)
+        }
+        val gridCardMargin = when {
+            gridColumns >= 8 -> dp(1)
+            gridColumns >= 5 -> dp(2)
+            else -> dp(4)
         }
         if (listMode) {
             val info = LinearLayout(this).apply {
@@ -747,13 +782,13 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             })
         } else {
             card.addView(title, LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(40)
+                ViewGroup.LayoutParams.MATCH_PARENT, gridTitleHeight
             ))
             libraryGrid.addView(card, GridLayout.LayoutParams().apply {
                 width = 0
                 height = ViewGroup.LayoutParams.WRAP_CONTENT
                 columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f)
-                setMargins(dp(4), dp(4), dp(4), dp(8))
+                setMargins(gridCardMargin, gridCardMargin, gridCardMargin, dp(if (gridColumns >= 8) 2 else 8))
             })
         }
         loadCoverThumbnail(book, cover)
@@ -924,7 +959,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         applyKeepScreenAwakeFlag()
         WindowCompat.setDecorFitsSystemWindows(window, false)
         window.clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
-        window.statusBarColor = if (dark) Color.rgb(34, 38, 36) else Color.rgb(221, 225, 222)
+        window.statusBarColor = Color.rgb(112, 119, 116)
         window.navigationBarColor = if (dark) Color.rgb(34, 38, 36) else Color.rgb(221, 225, 222)
         window.decorView.systemUiVisibility = (
             View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
@@ -933,7 +968,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             View.SYSTEM_UI_FLAG_LAYOUT_STABLE
         )
         WindowInsetsControllerCompat(window, window.decorView).apply {
-            isAppearanceLightStatusBars = !dark
+            isAppearanceLightStatusBars = false
             show(WindowInsetsCompat.Type.statusBars())
         }
 
@@ -1819,10 +1854,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         content.addView(zoomShareDivider, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, dp(1)
         ))
-        addAction(label("Select text · copy / search", "লেখা বাছাই · কপি / খুঁজুন"), {
-            showPageTextSelectionDialog(currentPage)
-        })
-        val inverted = preferences.getBoolean("pdf_invert_colors", false)
+                val inverted = preferences.getBoolean("pdf_invert_colors", false)
         addAction(
             label(
                 if (inverted) "Use normal PDF colors" else "Invert PDF colors · Night view",
