@@ -806,6 +806,14 @@ class SettingsActivity : ComponentActivity() {
             if (isFinishing || isDestroyed) return@check
             if (result.updateAvailable) {
                 val apkUrl = result.apkDownloadUrl
+
+                // A manual update check is an explicit request to download the update.
+                // Start the APK download immediately instead of requiring a second tap.
+                if (manual && !apkUrl.isNullOrBlank()) {
+                    UpdateInstaller.enqueue(this, apkUrl, result.latestVersion ?: "update")
+                    return@check
+                }
+
                 val actionLabel = if (!apkUrl.isNullOrBlank()) {
                     label("Download & install", "ডাউনলোড ও ইনস্টল")
                 } else {
