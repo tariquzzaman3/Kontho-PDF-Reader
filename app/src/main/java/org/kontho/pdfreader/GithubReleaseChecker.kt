@@ -13,7 +13,9 @@ data class UpdateCheckResult(
     val latestVersion: String?,
     val releaseUrl: String?,
     val apkDownloadUrl: String?,
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
+    val releaseTitle: String? = null,
+    val releaseNotes: String? = null
 ) {
     val updateAvailable: Boolean
         get() = latestVersion?.let { GithubReleaseChecker.isNewer(it, installedVersion) } == true
@@ -94,7 +96,14 @@ object GithubReleaseChecker {
                         .takeIf { it.startsWith("https://github.com/tariquzzaman3/Kontho-PDF-Reader/releases/") }
                         ?: RELEASES_URL
 
-                    UpdateCheckResult(installed, latest, releaseUrl, apkUrl)
+                    UpdateCheckResult(
+                        installed,
+                        latest,
+                        releaseUrl,
+                        apkUrl,
+                        releaseTitle = release.optString("name").trim().takeIf { it.isNotBlank() } ?: latest,
+                        releaseNotes = release.optString("body").trim().takeIf { it.isNotBlank() }
+                    )
                 } finally {
                     connection.disconnect()
                 }
