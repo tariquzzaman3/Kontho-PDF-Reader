@@ -242,14 +242,26 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private fun maybeCheckForUpdatesAutomatically() {
         if (!preferences.getBoolean("setup_done", false)) return
         if (!preferences.getBoolean("auto_check_updates", true)) return
+
         val now = System.currentTimeMillis()
-        val previousCheck = preferences.getLong("last_update_check_ms", 0L)
-        if (now - previousCheck < 24L * 60L * 60L * 1000L) return
-        preferences.edit().putLong("last_update_check_ms", now).apply()
+        // Failed requests must not suppress automatic checks for a full day.
+        // Successful checks are cached for 24 hours; failures retry after 30 minutes.
+        val lastSuccessfulCheck = preferences.getLong("last_update_success_ms", 0L)
+        if (now - lastSuccessfulCheck < 24L * 60L * 60L * 1000L) return
+        val lastAttempt = preferences.getLong("last_update_attempt_ms", 0L)
+        if (now - lastAttempt < 30L * 60L * 1000L) return
+        preferences.edit().putLong("last_update_attempt_ms", now).apply()
 
         GithubReleaseChecker.check(this) { result ->
             if (isFinishing || isDestroyed) return@check
+            if (result.latestVersion != null) {
+                preferences.edit()
+                    .putLong("last_update_success_ms", System.currentTimeMillis())
+                    .apply()
+            }
             if (!preferences.getBoolean("auto_check_updates", true) || !result.updateAvailable) return@check
+
+            val apkUrl = result.apkDownloadUrl
             AlertDialog.Builder(this)
                 .setTitle("কণ্ঠ · Kontho PDF Reader update")
                 .setMessage(
@@ -257,12 +269,16 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                         "You have ${result.installedVersion}. Your default browser will open the APK download so you can save it in your Downloads folder."
                 )
                 .setPositiveButton("Download in browser") { _, _ ->
-                    val apkUrl = result.apkDownloadUrl
                     if (!apkUrl.isNullOrBlank()) {
                         openApkDownloadInBrowser(apkUrl)
                     } else {
                         try {
-                            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(result.releaseUrl ?: GithubReleaseChecker.RELEASES_URL)).addCategory(Intent.CATEGORY_BROWSABLE))
+                            startActivity(
+                                Intent(
+                                    Intent.ACTION_VIEW,
+                                    Uri.parse(result.releaseUrl ?: GithubReleaseChecker.RELEASES_URL)
+                                ).addCategory(Intent.CATEGORY_BROWSABLE)
+                            )
                         } catch (_: Exception) {
                             toast("Could not open the update page.")
                         }
@@ -272,7 +288,6 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 .show()
         }
     }
-
     private fun openApkDownloadInBrowser(url: String) {
         if (!GithubReleaseChecker.isTrustedApkDownloadUrl(url)) {
             toast("The APK download link is not a trusted GitHub release.")
