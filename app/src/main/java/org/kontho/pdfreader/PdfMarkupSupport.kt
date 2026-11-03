@@ -93,6 +93,7 @@ internal object PdfMarkupSupport {
         val token = System.nanoTime().toString()
         val originalBackup = File(cacheDirectory, "kontho-original-$token.pdf")
         val modifiedFile = File(cacheDirectory, "kontho-commented-$token.pdf")
+        var preserveBackup = false
         try {
             val source = resolver.openInputStream(sourceUri)
                 ?: throw IOException("Could not read the original PDF.")
@@ -148,6 +149,7 @@ internal object PdfMarkupSupport {
                             stream.flush()
                         }
                     } catch (restoreError: Exception) {
+                        preserveBackup = true
                         throw IOException(
                             "Saving comments failed, and Android could not restore the original file. Keep the backup at ${originalBackup.name} and do not delete it.",
                             restoreError
@@ -166,7 +168,7 @@ internal object PdfMarkupSupport {
             // path reports its filename to the user for manual recovery.
             if (modifiedFile.exists()) modifiedFile.delete()
             // The backup is a temporary safety copy, not a permanent duplicate.
-            originalBackup.delete()
+            if (!preserveBackup) originalBackup.delete()
         }
     }
 }
