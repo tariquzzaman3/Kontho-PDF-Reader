@@ -3482,7 +3482,131 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             .show()
     }
 
+    private fun savePendingPdfComments(afterSaved: (() -> Unit)? = null) {
+        val book = currentBook ?: return
+        val comments = pendingPdfComments.toList()
+        if (comments.isEmpty()) {
+            afterSaved?.invoke()
+            return
+        }
+        val canReplace = try {
+            DocumentFile.fromSingleUri(this, book.uri)?.canWrite() == true
+        } catch (_: Exception) {
+            false
+        }
+        if (!canReplace) {
+            afterCommentCopySaved = afterSaved
+            AlertDialog.Builder(this)
+                .setTitle("Original PDF is read-only")
+                .setMessage("Android has not granted Kontho permission to replace this file. You can save a new PDF containing the comments instead; the original will remain unchanged.")
+                .setNegativeButton("Cancel") { _, _ -> afterCommentCopySaved = null }
+                .setPositiveButton("Save commented copy") { _, _ ->
+                    savingCommentedCopy = true
+                    val filename = book.name.removeSuffixIgnoreCase(".pdf") + " - commented.pdf"
+                    createPdfCopy.launch(filename)
+                }
+                .show()
+            return
+        }
+
+        val pageToRestore = currentPage
+        setBusy("Saving comments into the original PDF…")
+        worker.execute {
+            try {
+                // Release PdfRenderer's descriptor before the document provider
+                // replaces the selected file.
+                closeCurrentRenderer()
+                PdfMarkupSupport.saveComments(
+                    contentResolver, book.uri, book.uri, cacheDir, comments
+                )
+                mainHandler.post {
+                    clearBusy()
+                    pendingPdfComments.clear()
+                    toast("Comments saved into the original PDF.")
+                    if (afterSaved != null) afterSaved()
+                    else openBook(book, pageToRestore)
+                }
+            } catch (error: Exception) {
+                mainHandler.post {
+                    clearBusy()
+                    toast("Could not save comments: ${error.localizedMessage ?: "unknown error"}")
+                    // The renderer was closed before writing. Reopen the source
+                    // whether the write succeeded or the helper restored it.
+                    openBook(book, pageToRestore)
+                }
+            }
+        }
+    }
+
+    private fun savePendingCommentsAsCopy(destination: Uri) {
+        val book = currentBook ?: run {
+            afterCommentCopySaved = null
+            return
+        }
+        val comments = pendingPdfComments.toList()
+        if (comments.isEmpty()) {
+            afterCommentCopySaved = null
+            return
+        }
+        setBusy("Saving commented PDF copy…")
+        worker.execute {
+            try {
+                PdfMarkupSupport.saveComments(
+                    contentResolver, book.uri, destination, cacheDir, comments
+                )
+                mainHandler.post {
+                    clearBusy()
+                    pendingPdfComments.clear()
+                    refreshPdfCommentMarkers()
+                    toast("Commented PDF copy saved. The original file was not changed.")
+                    val completion = afterCommentCopySaved
+                    afterCommentCopySaved = null
+                    completion?.invoke()
+                }
+            } catch (error: Exception) {
+                mainHandler.post {
+                    clearBusy()
+                    afterCommentCopySaved = null
+                    toast("Could not save commented copy: ${error.localizedMessage ?: "unknown error"}")
+                }
+            }
+        }
+    }
+
+    private fun performLeaveCurrentPdf() {
+        val uri = currentBook?.uri
+        if (uri != null && !preferences.getBoolean("ocr_keep_cache", true)) {
+            removeOcrCacheForUri(uri)
+        }
+        stopReaderNarration()
+        showLibrary()
+        if (pendingFolderScan) {
+            pendingFolderScan = false
+            refreshLibrary()
+        }
+    }
+
     private fun leaveCurrentPdf() {
+        if (pendingPdfComments.isNotEmpty()) {
+            AlertDialog.Builder(this)
+                .setTitle("Unsaved PDF comments")
+                .setMessage("You have comments that are not yet written into the PDF. Save them before leaving?")
+                .setNegativeButton("Keep reading", null)
+                .setNeutralButton("Discard and leave") { _, _ ->
+                    pendingPdfComments.clear()
+                    refreshPdfCommentMarkers()
+                    performLeaveCurrentPdf()
+                }
+                .setPositiveButton("Save and leave") { _, _ ->
+                    savePendingPdfComments { performLeaveCurrentPdf() }
+                }
+                .show()
+            return
+        }
+        performLeaveCurrentPdf()
+    }
+
+
         val uri = currentBook?.uri
         if (uri != null && !preferences.getBoolean("ocr_keep_cache", true)) {
             removeOcrCacheForUri(uri)
