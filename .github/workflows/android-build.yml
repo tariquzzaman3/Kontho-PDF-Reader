@@ -156,6 +156,8 @@ jobs:
           - Browse PDF folders with progressive scanning, grid/list layouts, and sorting.
           - Manage OCR cache, reading controls, sharing, printing, text selection, and PDF copies.
 
+          NOTES
+
           gh release create "v0.6.7" \
             "Kontho-PDF-Reader-v0.6.7.apk" \
             "APK-SHA256SUMS.txt" \
