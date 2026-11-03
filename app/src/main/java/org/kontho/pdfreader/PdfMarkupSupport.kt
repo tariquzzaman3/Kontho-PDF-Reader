@@ -113,7 +113,7 @@ internal object PdfMarkupSupport {
                     val y = (box.upperRightY - iconSize - 12f).coerceAtLeast(box.lowerLeftY)
                     val annotation = PDAnnotationText().apply {
                         contents = comment.text
-                        title = "Kontho PDF Reader"
+                        setTitlePopup("Kontho PDF Reader")
                         name = PDAnnotationText.NAME_COMMENT
                         open = false
                         rectangle = PDRectangle(x, y, iconSize, iconSize)
