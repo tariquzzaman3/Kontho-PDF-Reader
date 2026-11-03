@@ -4,12 +4,16 @@ import androidx.activity.ComponentActivity
 import android.animation.ValueAnimator
 import android.app.AlertDialog
 import android.content.Intent
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.content.res.ColorStateList
 import android.database.Cursor
 import android.graphics.Bitmap
 import android.graphics.Color
+import android.graphics.ColorMatrix
+import android.graphics.ColorMatrixColorFilter
 import android.graphics.Typeface
 import android.graphics.drawable.ClipDrawable
 import android.graphics.drawable.GradientDrawable
@@ -75,6 +79,7 @@ import java.security.MessageDigest
 import java.util.Locale
 import java.net.HttpURLConnection
 import java.net.URL
+import java.net.URLEncoder
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import kotlin.math.roundToInt
@@ -104,6 +109,11 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     @Volatile private var currentPage = 0
     private var pageCount = 0
     private var pageText = ""
+    private val pageLinksByPage = mutableMapOf<Int, List<PdfLinkRegion>>()
+    private val pageCommentsByPage = mutableMapOf<Int, List<String>>()
+    private val pendingPdfComments = mutableListOf<PendingPdfComment>()
+    private var savingCommentedCopy = false
+    private var afterCommentCopySaved: (() -> Unit)? = null
     private var tts: TextToSpeech? = null
     private var ttsReady = false
     private var isNarrating = false
@@ -128,6 +138,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private lateinit var horizontalPageScroll: HorizontalScrollView
     private lateinit var pagesContainer: LinearLayout
     private lateinit var readerMenuButton: TextView
+    private lateinit var readerPageTitle: TextView
+    private lateinit var pageScrubber: TextView
     private var readerOptionsPopup: PopupWindow? = null
     private lateinit var readerPlaybackPanel: LinearLayout
     private lateinit var readerPlaybackButtons: LinearLayout
@@ -139,6 +151,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private lateinit var progressBar: ProgressBar
     private var progressAnimator: ValueAnimator? = null
     private val pageImages = mutableListOf<ImageView>()
+    private val pageFrames = mutableListOf<FrameLayout>()
     private var pageDimensions: List<Pair<Int, Int>> = emptyList()
     private val pageBitmaps = mutableMapOf<Int, Bitmap>()
     private val pageTextCache = mutableMapOf<Int, String>()
@@ -167,14 +180,20 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private val createPdfCopy = registerForActivityResult(
         ActivityResultContracts.CreateDocument("application/pdf")
     ) { destination ->
-        if (destination != null) copyCurrentBookTo(destination)
+        if (destination != null) {
+            if (savingCommentedCopy) savePendingCommentsAsCopy(destination)
+            else copyCurrentBookTo(destination)
+        } else {
+            afterCommentCopySaved = null
+        }
+        savingCommentedCopy = false
     }
 
     private val chooseBookFolder = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) {
             try {
                 contentResolver.takePersistableUriPermission(
-                    uri, Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
                 )
             } catch (_: SecurityException) {
                 // Some document providers do not support persistable permissions.
@@ -665,11 +684,11 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             setBackgroundColor(Color.rgb(238, 242, 240))
             setImageResource(android.R.drawable.ic_menu_gallery)
             scaleType = ImageView.ScaleType.FIT_CENTER
-            adjustViewBounds = !listMode
+            adjustViewBounds = false
             contentDescription = "Cover of ${book.name}"
         }
         card.addView(cover, if (listMode) LinearLayout.LayoutParams(dp(64), dp(88)).apply { marginEnd = dp(10) }
-            else LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+            else LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(176)))
         val title = TextView(this).apply {
             text = book.name.removeSuffixIgnoreCase(".pdf")
             tag = "book_title"
@@ -744,14 +763,6 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             val result = bitmap
             runOnUiThread {
                 if (result != null && !isFinishing && !isDestroyed && showingLibrary && image.tag == book.uri.toString()) {
-                    if (image.layoutParams.height == ViewGroup.LayoutParams.WRAP_CONTENT) {
-                        val gridWidth = libraryGrid.width.takeIf { it > 0 } ?: (resources.displayMetrics.widthPixels - dp(32))
-                        val columns = libraryGrid.columnCount.coerceAtLeast(1)
-                        val coverWidth = image.width.takeIf { it > 0 } ?: (gridWidth / columns - dp(24)).coerceAtLeast(dp(48))
-                        image.layoutParams = image.layoutParams.apply {
-                            height = (coverWidth.toFloat() * result.height / result.width).roundToInt().coerceAtLeast(dp(72))
-                        }
-                    }
                     image.setImageBitmap(result)
                 } else if (result != null) {
                     result.recycle()
@@ -760,7 +771,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         }
     }
 
-    private fun openBook(book: Book) {
+    private fun openBook(book: Book, initialPage: Int = 0) {
         if (libraryScanRunning) {
             libraryScanGeneration++
             libraryScanRunning = false
@@ -772,11 +783,14 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         ) removeOcrCacheForUri(previousUri)
         showingLibrary = false
         currentBook = book
-        currentPage = 0
+        currentPage = initialPage.coerceAtLeast(0)
         pageCount = 0
         pageText = ""
         pageTextCache.clear()
         pageDimensions = emptyList()
+        pageLinksByPage.clear()
+        pageCommentsByPage.clear()
+        pendingPdfComments.clear()
         queuedPageRenders.clear()
         releaseReaderBitmaps()
         stopReaderNarration()
@@ -813,12 +827,23 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                     }
                 }
                 if (sizes.isEmpty()) throw IOException("This PDF has no pages.")
+                val markup = try {
+                    PdfMarkupSupport.read(contentResolver, book.uri)
+                } catch (_: Exception) {
+                    PdfMarkupSnapshot(emptyMap(), emptyMap())
+                }
 
                 runOnUiThread {
                     if (generation != readerGeneration || currentBook?.uri != book.uri || showingLibrary) return@runOnUiThread
                     pageDimensions = sizes
                     pageCount = sizes.size
-                    buildContinuousPages(generation)
+                    pageLinksByPage.clear()
+                    pageLinksByPage.putAll(markup.linksByPage)
+                    pageCommentsByPage.clear()
+                    pageCommentsByPage.putAll(markup.commentsByPage)
+                    val restore = initialPage.coerceIn(0, (sizes.size - 1).coerceAtLeast(0))
+                    currentPage = restore
+                    buildContinuousPages(generation, restore)
                 }
             } catch (error: Exception) {
                 closeCurrentRenderer()
@@ -1188,13 +1213,13 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 horizontalPageScroll.scrollTo(oldScrollX.coerceIn(0, maximum), 0)
             }
         }
-        pageImages.forEachIndexed { index, image ->
+        pageFrames.forEachIndexed { index, frame ->
             val size = pageDimensions.getOrNull(index) ?: return@forEachIndexed
-            val imageWidth = (width - dp(14)).coerceAtLeast(dp(120))
-            val height = (imageWidth.toFloat() * size.second / size.first).roundToInt().coerceAtLeast(dp(160))
-            image.layoutParams = image.layoutParams.apply {
-                this.width = imageWidth
-                this.height = height
+            val frameWidth = (width - dp(14)).coerceAtLeast(dp(120))
+            val frameHeight = (frameWidth.toFloat() * size.second / size.first).roundToInt().coerceAtLeast(dp(160))
+            frame.layoutParams = frame.layoutParams.apply {
+                this.width = frameWidth
+                this.height = frameHeight
             }
         }
         if (rerender && !showingLibrary && pageDimensions.isNotEmpty()) {
@@ -1226,6 +1251,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         pagesContainer.removeAllViews()
         pageImages.forEach { it.setImageDrawable(null) }
         pageImages.clear()
+        pageFrames.clear()
         pageBitmaps.values.forEach { bitmap -> if (!bitmap.isRecycled) bitmap.recycle() }
         pageBitmaps.clear()
         queuedPageRenders.clear()
@@ -1262,7 +1288,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         if (pageDimensions.isNotEmpty()) setBusy("Loading PDF page ${currentPage + 1}…")
         readerScroll.post {
             if (generation == readerGeneration && !showingLibrary && pageImages.isNotEmpty()) {
-                readerScroll.scrollTo(0, pageImages[currentPage].top)
+                readerScroll.scrollTo(0, pageFrames[currentPage].top)
                 horizontalPageScroll.scrollTo(
                     ((contentWidth - horizontalPageScroll.width) / 2).coerceAtLeast(0), 0
                 )
@@ -1276,14 +1302,15 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private fun updateCurrentPageFromScroll() {
         if (!::readerScroll.isInitialized || pageImages.isEmpty()) return
         val targetY = readerScroll.scrollY + readerScroll.height / 2
-        val found = pageImages.indexOfFirst { targetY >= it.top && targetY <= it.bottom }
-        val visibleIndex = (if (found >= 0) found else pageImages.indexOfLast { it.top <= targetY })
-            .coerceIn(0, pageImages.lastIndex)
+        val found = pageFrames.indexOfFirst { targetY >= it.top && targetY <= it.bottom }
+        val visibleIndex = (if (found >= 0) found else pageFrames.indexOfLast { it.top <= targetY })
+            .coerceIn(0, pageFrames.lastIndex)
         if (visibleIndex != currentPage) {
             currentPage = visibleIndex
             pageText = pageTextCache[currentPage].orEmpty()
             trimReaderBitmaps()
         }
+        updatePageScrubberLabel()
     }
 
     private fun updateVisiblePages() {
@@ -1292,8 +1319,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         val viewportBottom = viewportTop + readerScroll.height
         val margin = readerScroll.height.coerceAtLeast(dp(500))
         pageImages.indices.filter { index ->
-            pageImages[index].bottom >= viewportTop - margin &&
-                pageImages[index].top <= viewportBottom + margin
+            pageFrames[index].bottom >= viewportTop - margin &&
+                pageFrames[index].top <= viewportBottom + margin
         }.forEach { renderPageIntoView(it, readerGeneration) }
         trimReaderBitmaps()
     }
@@ -1334,6 +1361,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                         }
                         pageBitmaps[index] = result
                         pageImages[index].setImageBitmap(result)
+                        applyPdfColorMode()
                         trimReaderBitmaps()
                         if (index == currentPage) clearBusy()
                     } else {
@@ -2025,7 +2053,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         pageText = pageTextCache[index].orEmpty()
         readerScroll.post {
             if (index in pageImages.indices) {
-                readerScroll.smoothScrollTo(0, pageImages[index].top)
+                readerScroll.smoothScrollTo(0, pageFrames[index].top)
                 renderPageIntoView(index, readerGeneration)
             }
         }
