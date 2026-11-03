@@ -697,7 +697,11 @@ class SettingsActivity : ComponentActivity() {
         }
 
         addSection(label("UPDATES & ABOUT", "আপডেট ও পরিচিতি"))
-        val appVersion = BuildConfig.VERSION_NAME
+        val appVersion = try {
+            packageManager.getPackageInfo(packageName, 0).versionName ?: "Unknown"
+        } catch (_: Exception) {
+            "Unknown"
+        }
         addRow(label("About Kontho", "কণ্ঠ পরিচিতি"), label("Version $appVersion · Bangla PDF reader", "সংস্করণ $appVersion · বাংলা PDF রিডার")) {
             AlertDialog.Builder(this)
                 .setTitle("কণ্ঠ · Kontho PDF Reader")
