@@ -543,11 +543,11 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 else compareBy(String.CASE_INSENSITIVE_ORDER) { it.name }
             val sorted = if (descending) found.values.sortedWith(comparator.reversed())
                 else found.values.sortedWith(comparator)
-            libraryScanRunning = false
-
             mainHandler.post {
                 if (generation != libraryScanGeneration) return@post
+                libraryScanRunning = false
                 if (!showingLibrary) {
+                    pendingFolderScan = true
                     if (::librarySwipe.isInitialized) librarySwipe.isRefreshing = false
                     clearBusy()
                     return@post
