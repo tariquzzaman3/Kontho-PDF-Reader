@@ -2333,7 +2333,6 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             setTextColor(if (dark) Color.rgb(238, 242, 239) else Color.rgb(32, 44, 39))
             setPadding(dp(14), dp(12), dp(14), dp(12))
             setTextIsSelectable(true)
-            textIsSelectable = true
         }
         val scroll = ScrollView(this).apply {
             isFillViewport = false
