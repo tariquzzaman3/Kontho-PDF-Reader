@@ -697,10 +697,10 @@ class SettingsActivity : ComponentActivity() {
         }
 
         addSection(label("UPDATES & ABOUT", "আপডেট ও পরিচিতি"))
-        addRow(label("About Kontho", "কণ্ঠ পরিচিতি"), label("Version 0.6.7 · Bangla PDF reader", "সংস্করণ ০.৬.৭ · বাংলা PDF রিডার")) {
+        addRow(label("About Kontho", "কণ্ঠ পরিচিতি"), label("Version 0.6.8 · Bangla PDF reader", "সংস্করণ ০.৬.৮ · বাংলা PDF রিডার")) {
             AlertDialog.Builder(this)
                 .setTitle("কণ্ঠ · Kontho PDF Reader")
-                .setMessage(label("Version 0.6.7\nRead PDFs, use Bengali/English OCR, and listen through Android text-to-speech.", "সংস্করণ ০.৬.৭\nPDF পড়ুন, বাংলা/ইংরেজি OCR ব্যবহার করুন এবং Android-এর কণ্ঠে শুনুন।"))
+                .setMessage(label("Version 0.6.8\nRead PDFs, use Bengali/English OCR, and listen through Android text-to-speech.", "সংস্করণ ০.৬.৮\nPDF পড়ুন, বাংলা/ইংরেজি OCR ব্যবহার করুন এবং Android-এর কণ্ঠে শুনুন।"))
                 .setPositiveButton(label("OK", "ঠিক আছে"), null).show()
         }
 
@@ -791,23 +791,25 @@ class SettingsActivity : ComponentActivity() {
         }
         GithubReleaseChecker.check(this) { result ->
             if (isFinishing || isDestroyed) return@check
+
+            if (result.latestVersion != null) {
+                prefs.edit()
+                    .putLong("last_update_success_ms", System.currentTimeMillis())
+                    .apply()
+            }
+
             if (result.updateAvailable) {
                 val apkUrl = result.apkDownloadUrl
-                if (manual && !apkUrl.isNullOrBlank()) {
-                    openApkDownloadInBrowser(apkUrl)
-                    return@check
-                }
-
                 val actionLabel = if (!apkUrl.isNullOrBlank()) {
-                    label("Download in browser", "ব্রাউজারে ডাউনলোড")
+                    label("Download update", "আপডেট ডাউনলোড")
                 } else {
                     label("Open release", "রিলিজ খুলুন")
                 }
                 AlertDialog.Builder(this)
                     .setTitle(label("Kontho update available", "কণ্ঠের আপডেট পাওয়া গেছে"))
                     .setMessage(label(
-                        "Installed version: ${result.installedVersion}\nLatest version: ${result.latestVersion}\n\nThe APK will open in your default browser. Save it in your Downloads folder, then open the file to install the update.",
-                        "ইনস্টল করা সংস্করণ: ${result.installedVersion}\nসর্বশেষ সংস্করণ: ${result.latestVersion}\n\nAPK আপনার ডিফল্ট ব্রাউজারে খুলবে। Downloads ফোল্ডারে সংরক্ষণ করুন, তারপর ফাইলটি খুলে আপডেট ইনস্টল করুন।"
+                        "Installed version: ${result.installedVersion}\nLatest version: ${result.latestVersion}\n\nChoose Download update to open the APK in your default browser.",
+                        "ইনস্টল করা সংস্করণ: ${result.installedVersion}\nসর্বশেষ সংস্করণ: ${result.latestVersion}\n\nআপডেট ডাউনলোড চাপলে APK আপনার ডিফল্ট ব্রাউজারে খুলবে।"
                     ))
                     .setPositiveButton(actionLabel) { _, _ ->
                         if (!apkUrl.isNullOrBlank()) openApkDownloadInBrowser(apkUrl)
@@ -818,13 +820,13 @@ class SettingsActivity : ComponentActivity() {
             } else if (manual) {
                 val message = if (result.latestVersion == null) {
                     label(
-                        "Could not find a published GitHub release yet. You can still open the releases page to check available downloads. Details: ${result.errorMessage ?: "unknown error"}",
-                        "এখনো প্রকাশিত GitHub রিলিজ পাওয়া যায়নি। ডাউনলোড দেখতে রিলিজ পৃষ্ঠা খুলুন। বিবরণ: ${result.errorMessage ?: "অজানা ত্রুটি"}"
+                        "Could not check GitHub for an update. Please check your internet connection and try again. Details: ${result.errorMessage ?: "unknown error"}",
+                        "GitHub-এ আপডেট পরীক্ষা করা যায়নি। ইন্টারনেট সংযোগ পরীক্ষা করে আবার চেষ্টা করুন। বিবরণ: ${result.errorMessage ?: "অজানা ত্রুটি"}"
                     )
                 } else {
                     label(
-                        "You are using version ${result.installedVersion}. The latest published GitHub release is ${result.latestVersion}.",
-                        "আপনি ${result.installedVersion} সংস্করণ ব্যবহার করছেন। GitHub-এ সর্বশেষ প্রকাশিত সংস্করণ ${result.latestVersion}।"
+                        "You are up to date. Installed version: ${result.installedVersion}. Latest published version: ${result.latestVersion}.",
+                        "আপনার অ্যাপটি সর্বশেষ সংস্করণে আছে। ইনস্টল করা সংস্করণ: ${result.installedVersion}। সর্বশেষ প্রকাশিত সংস্করণ: ${result.latestVersion}।"
                     )
                 }
                 AlertDialog.Builder(this)
@@ -836,7 +838,6 @@ class SettingsActivity : ComponentActivity() {
             }
         }
     }
-
     private fun openApkDownloadInBrowser(url: String) {
         if (!GithubReleaseChecker.isTrustedApkDownloadUrl(url)) {
             Toast.makeText(this, label("The APK link is not a trusted GitHub release.", "APK লিংকটি নির্ভরযোগ্য GitHub রিলিজের নয়।"), Toast.LENGTH_LONG).show()
