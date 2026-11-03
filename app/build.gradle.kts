@@ -23,8 +23,8 @@ android {
         applicationId = "org.kontho.pdfreader"
         minSdk = 23
         targetSdk = 36
-        versionCode = 14
-        versionName = "0.6.8"
+        versionCode = 15
+        versionName = "0.6.9"
     }
 
     compileOptions {
