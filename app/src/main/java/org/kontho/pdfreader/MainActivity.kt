@@ -63,12 +63,15 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.documentfile.provider.DocumentFile
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
+import com.tom_roush.pdfbox.io.MemoryUsageSetting
 import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.text.PDFTextStripper
 import com.googlecode.tesseract.android.TessBaseAPI
 import java.io.File
+import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.IOException
+import java.security.MessageDigest
 import java.util.Locale
 import java.net.HttpURLConnection
 import java.net.URL
@@ -77,6 +80,13 @@ import java.util.concurrent.Executors
 import kotlin.math.roundToInt
 
 private data class Book(val uri: Uri, val name: String)
+
+private data class OcrModelIntegrity(
+    val repository: String,
+    val revision: String,
+    val expectedSize: Long,
+    val gitBlobSha1: String
+)
 
 class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private val worker = Executors.newSingleThreadExecutor()
@@ -133,6 +143,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private val pageBitmaps = mutableMapOf<Int, Bitmap>()
     private val pageTextCache = mutableMapOf<Int, String>()
     private val ocrTextCache = ConcurrentHashMap<String, String>()
+    private val verifiedOcrModels = ConcurrentHashMap.newKeySet<String>()
     private val queuedPageRenders = mutableSetOf<Int>()
     private var zoomScale = 1.0f
     private var basePageWidthPx = 0
@@ -777,12 +788,29 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 closeCurrentRenderer()
                 val descriptor = contentResolver.openFileDescriptor(book.uri, "r")
                     ?: throw IOException("Could not open this PDF.")
-                val renderer = PdfRenderer(descriptor)
+                val fileSize = descriptor.statSize
+                if (fileSize > MAX_PDF_BYTES) {
+                    descriptor.close()
+                    throw IOException("This PDF is larger than 250 MB. Please choose a smaller or optimized copy.")
+                }
                 fileDescriptor = descriptor
+                val renderer = PdfRenderer(descriptor)
                 pdfRenderer = renderer
+                if (renderer.pageCount > MAX_PDF_PAGES) {
+                    throw IOException("This PDF has more than 2,000 pages. Please split it into smaller files.")
+                }
                 val sizes = ArrayList<Pair<Int, Int>>(renderer.pageCount)
                 for (index in 0 until renderer.pageCount) {
-                    renderer.openPage(index).use { page -> sizes += page.width to page.height }
+                    renderer.openPage(index).use { page ->
+                        val shorterSide = minOf(page.width, page.height)
+                        val longerSide = maxOf(page.width, page.height)
+                        if (shorterSide <= 0 || longerSide > MAX_PAGE_DIMENSION_POINTS ||
+                            longerSide.toFloat() / shorterSide > MAX_PAGE_ASPECT_RATIO
+                        ) {
+                            throw IOException("This PDF contains a page with unsupported dimensions.")
+                        }
+                        sizes += page.width to page.height
+                    }
                 }
                 if (sizes.isEmpty()) throw IOException("This PDF has no pages.")
 
@@ -2004,9 +2032,14 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     }
 
     private fun extractText(uri: Uri, pageNumber: Int): String {
+        val fileSize = contentResolver.openFileDescriptor(uri, "r")?.use { it.statSize }
+            ?: throw IOException("Could not inspect this PDF.")
+        if (fileSize > MAX_PDF_BYTES) {
+            throw IOException("This PDF is larger than 250 MB. Please choose a smaller or optimized copy.")
+        }
         contentResolver.openInputStream(uri).use { input ->
             if (input == null) return ""
-            PDDocument.load(input).use { document ->
+            PDDocument.load(input, MemoryUsageSetting.setupTempFileOnly()).use { document ->
                 val stripper = PDFTextStripper().apply {
                     startPage = pageNumber
                     endPage = pageNumber
@@ -2277,11 +2310,58 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             val fastRoot = File(filesDir, "tesseract")
             val cachedFastModelsAvailable = languages.all { code ->
                 val model = File(fastRoot, "tessdata/$code.traineddata")
-                model.isFile && model.length() > 1_000_000L
+                isVerifiedOcrModel(model, ocrModelIntegrity("tessdata_fast", code))
             }
             if (preferBengaliAccuracy && cachedFastModelsAvailable) return fastRoot
             throw error
         }
+    }
+
+    private fun ocrModelIntegrity(repository: String, code: String): OcrModelIntegrity {
+        return when ("$repository/$code") {
+            "tessdata_best/ben" -> OcrModelIntegrity(
+                "tessdata_best", "e12c65a915945e4c28e237a9b52bc4a8f39a0cec",
+                11_045_427L, "b16a79b0bf5a66e70a0f73165ed0eb92c688ee20"
+            )
+            "tessdata_best/eng" -> OcrModelIntegrity(
+                "tessdata_best", "e12c65a915945e4c28e237a9b52bc4a8f39a0cec",
+                15_400_601L, "176dc3220de7db34d3b3aecbfa42043a6038348b"
+            )
+            "tessdata_fast/ben" -> OcrModelIntegrity(
+                "tessdata_fast", "87416418657359cb625c412a48b6e1d6d41c29bd",
+                855_841L, "7e9054d1de309714009a85555f5276168d41af9c"
+            )
+            "tessdata_fast/eng" -> OcrModelIntegrity(
+                "tessdata_fast", "87416418657359cb625c412a48b6e1d6d41c29bd",
+                4_113_088L, "bbef4675053b5b468cdb477053e28b1c698ba08e"
+            )
+            else -> throw IOException("No trusted OCR model is configured for $repository/$code.")
+        }
+    }
+
+    private fun isVerifiedOcrModel(file: File, spec: OcrModelIntegrity): Boolean {
+        if (!file.isFile || file.length() != spec.expectedSize) {
+            verifiedOcrModels.remove(file.absolutePath)
+            return false
+        }
+        if (verifiedOcrModels.contains(file.absolutePath)) return true
+
+        val digest = MessageDigest.getInstance("SHA-1")
+        digest.update("blob ${spec.expectedSize}\u0000".toByteArray(Charsets.US_ASCII))
+        FileInputStream(file).use { input ->
+            val buffer = ByteArray(64 * 1024)
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                digest.update(buffer, 0, count)
+            }
+        }
+        val actual = digest.digest().joinToString("") { byte ->
+            "%02x".format(byte.toInt() and 0xff)
+        }
+        val verified = actual.equals(spec.gitBlobSha1, ignoreCase = true)
+        if (verified) verifiedOcrModels.add(file.absolutePath)
+        return verified
     }
 
     private fun downloadOcrModels(dataRoot: File, languages: List<String>, repository: String) {
@@ -2290,9 +2370,17 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             throw IOException("Cannot create the OCR model folder.")
         }
         for (code in languages) {
+            val spec = ocrModelIntegrity(repository, code)
             val model = File(tessdata, "$code.traineddata")
-            if (model.isFile && model.length() > 1_000_000L) continue
-            val url = URL("https://raw.githubusercontent.com/tesseract-ocr/$repository/main/$code.traineddata")
+            if (isVerifiedOcrModel(model, spec)) continue
+
+            val partial = File(tessdata, "$code.traineddata.part")
+            if (partial.exists() && !partial.delete()) {
+                throw IOException("Could not clear an incomplete OCR model download.")
+            }
+            val url = URL(
+                "https://raw.githubusercontent.com/tesseract-ocr/${spec.repository}/${spec.revision}/$code.traineddata"
+            )
             val connection = (url.openConnection() as HttpURLConnection).apply {
                 connectTimeout = 15_000
                 readTimeout = 90_000
@@ -2303,33 +2391,46 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 if (connection.responseCode != HttpURLConnection.HTTP_OK) {
                     throw IOException("OCR model download returned HTTP ${connection.responseCode}.")
                 }
-                val total = connection.contentLengthLong
-                val partial = File(tessdata, "$code.traineddata.part")
+                val contentLength = connection.contentLengthLong
+                if (contentLength >= 0L && contentLength != spec.expectedSize) {
+                    throw IOException("The OCR model size did not match the trusted version.")
+                }
                 setBusy("Downloading OCR model: $code…")
+                var copied = 0L
+                var lastUpdate = 0L
                 connection.inputStream.use { input ->
                     FileOutputStream(partial).use { output ->
                         val buffer = ByteArray(64 * 1024)
-                        var copied = 0L
-                        var lastUpdate = 0L
                         while (true) {
                             val count = input.read(buffer)
                             if (count < 0) break
-                            output.write(buffer, 0, count)
                             copied += count
-                            if (total > 0 && copied - lastUpdate >= 256 * 1024) {
+                            if (copied > spec.expectedSize) {
+                                throw IOException("The OCR model exceeded its expected download size.")
+                            }
+                            output.write(buffer, 0, count)
+                            if (copied - lastUpdate >= 256 * 1024) {
                                 lastUpdate = copied
                                 setBusy(
                                     "Downloading OCR model: $code…",
-                                    (copied * 100L / total).toInt()
+                                    (copied * 100L / spec.expectedSize).toInt()
                                 )
                             }
                         }
                     }
                 }
+                if (copied != spec.expectedSize || !isVerifiedOcrModel(partial, spec)) {
+                    throw IOException("The downloaded OCR model failed its integrity check.")
+                }
                 if (model.exists() && !model.delete()) {
                     throw IOException("Could not replace the OCR model.")
                 }
                 if (!partial.renameTo(model)) throw IOException("Could not save OCR model.")
+                verifiedOcrModels.remove(partial.absolutePath)
+                verifiedOcrModels.add(model.absolutePath)
+            } catch (error: Exception) {
+                partial.delete()
+                throw error
             } finally {
                 connection.disconnect()
             }
@@ -2975,6 +3076,10 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     }
 
     companion object {
+        private const val MAX_PDF_BYTES = 250L * 1024L * 1024L
+        private const val MAX_PDF_PAGES = 2_000
+        private const val MAX_PAGE_DIMENSION_POINTS = 14_400
+        private const val MAX_PAGE_ASPECT_RATIO = 20f
         private const val KEY_BOOK_FOLDER = "book_folder_uri"
         private const val KEY_RECENT_BOOKS = "recent_books"
         private const val KEY_KEEP_SCREEN_AWAKE = "keep_screen_awake"

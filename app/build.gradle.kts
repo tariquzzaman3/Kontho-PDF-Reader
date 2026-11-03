@@ -23,8 +23,8 @@ android {
         applicationId = "org.kontho.pdfreader"
         minSdk = 23
         targetSdk = 36
-        versionCode = 9
-        versionName = "0.6.3"
+        versionCode = 10
+        versionName = "0.6.4"
     }
 
     compileOptions {
@@ -64,4 +64,10 @@ dependencies {
     implementation("androidx.documentfile:documentfile:1.0.1")
     implementation("com.tom-roush:pdfbox-android:2.0.27.0")
     implementation("cz.adaptech.tesseract4android:tesseract4android:4.9.0")
+
+    // PdfBox-Android 2.0.27.0 brings Bouncy Castle 1.72 transitively.
+    // Keep all three modules on the compatible security-fixed release.
+    implementation("org.bouncycastle:bcprov-jdk15to18:1.86")
+    implementation("org.bouncycastle:bcpkix-jdk15to18:1.86")
+    implementation("org.bouncycastle:bcutil-jdk15to18:1.86")
 }

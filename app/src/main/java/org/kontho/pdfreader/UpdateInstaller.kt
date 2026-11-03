@@ -32,9 +32,14 @@ class UpdateDownloadReceiver(private val activity: Activity) : BroadcastReceiver
 object UpdateInstaller {
     fun enqueue(activity: Activity, url: String, version: String) {
         val uri = Uri.parse(url)
+        val expectedReleasePath = "/tariquzzaman3/Kontho-PDF-Reader/releases/download/"
         if (uri.scheme != "https" ||
             uri.host != "github.com" ||
-            !uri.path.orEmpty().contains("/releases/download/")
+            (uri.port != -1 && uri.port != 443) ||
+            uri.userInfo != null ||
+            uri.query != null ||
+            uri.fragment != null ||
+            !uri.path.orEmpty().startsWith(expectedReleasePath)
         ) {
             toast(activity, "The APK download link is not a trusted GitHub release.", "APK ডাউনলোড লিংকটি নির্ভরযোগ্য GitHub রিলিজের নয়।")
             return

@@ -60,7 +60,7 @@ object GithubReleaseChecker {
                             .mapNotNull { index -> assets.optJSONObject(index) }
                             .firstOrNull { asset ->
                                 asset.optString("name").endsWith(".apk", ignoreCase = true) &&
-                                    asset.optString("browser_download_url").startsWith("https://github.com/")
+                                    asset.optString("browser_download_url").startsWith("https://github.com/tariquzzaman3/Kontho-PDF-Reader/releases/download/")
                             }
                             ?.optString("browser_download_url")
                             ?.takeIf { it.isNotBlank() }
