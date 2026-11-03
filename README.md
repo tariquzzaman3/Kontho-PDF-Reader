@@ -6,7 +6,7 @@ Kontho (কণ্ঠ) is an Android application built with Kotlin for reading Ba
 
 ## Download
 
-Download **Kontho PDF Reader 0.6.4** from the [GitHub Releases page](https://github.com/tariquzzaman3/Kontho-PDF-Reader/releases/tag/v0.6.4), or [download the APK directly](https://github.com/tariquzzaman3/Kontho-PDF-Reader/releases/download/v0.6.4/Kontho-PDF-Reader-v0.6.4.apk).
+Download the latest APK from the [permanent latest GitHub Release page](https://github.com/tariquzzaman3/Kontho-PDF-Reader/releases/latest). This link automatically points to the newest published stable release.
 
 Install the APK on your Android device. Your PDF files remain in the folders and locations you choose. OCR recognition can vary with scan quality and page layout, while read-aloud voice options depend on the Android text-to-speech engine installed on your device.
 
