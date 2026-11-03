@@ -702,6 +702,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         if (listMode) {
             val info = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
+                minimumHeight = dp(88)
+                gravity = Gravity.CENTER_VERTICAL
                 addView(title, matchWrap())
             }
             card.addView(info, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
@@ -3533,9 +3535,9 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 mainHandler.post {
                     clearBusy()
                     toast("Could not save comments: ${error.localizedMessage ?: "unknown error"}")
-                    // The renderer was closed before writing. Reopen the source
-                    // whether the write succeeded or the helper restored it.
+                    // Keep the notes editable after a failed save attempt.
                     openBook(book, pageToRestore)
+                    pendingPdfComments.addAll(comments)
                 }
             }
         }
@@ -3607,19 +3609,6 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             return
         }
         performLeaveCurrentPdf()
-    }
-
-
-        val uri = currentBook?.uri
-        if (uri != null && !preferences.getBoolean("ocr_keep_cache", true)) {
-            removeOcrCacheForUri(uri)
-        }
-        stopReaderNarration()
-        showLibrary()
-        if (pendingFolderScan) {
-            pendingFolderScan = false
-            refreshLibrary()
-        }
     }
 
     @Deprecated("Deprecated in Java")
