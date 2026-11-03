@@ -31,13 +31,13 @@ internal data class PdfMarkupSnapshot(
 )
 
 internal object PdfMarkupSupport {
-    fun read(resolver: ContentResolver, uri: Uri): PdfMarkupSnapshot {
+    fun read(resolver: ContentResolver, uri: Uri, password: String? = null): PdfMarkupSnapshot {
         val links = mutableMapOf<Int, MutableList<PdfLinkRegion>>()
         val comments = mutableMapOf<Int, MutableList<String>>()
         val input = resolver.openInputStream(uri)
             ?: throw IOException("Could not read PDF annotations.")
         input.use {
-            PDDocument.load(it, MemoryUsageSetting.setupTempFileOnly()).use { document ->
+            PDDocument.load(it, password.orEmpty(), MemoryUsageSetting.setupTempFileOnly()).use { document ->
                 for (pageIndex in 0 until document.getNumberOfPages()) {
                     val page = document.getPage(pageIndex)
                     val box = page.getMediaBox()

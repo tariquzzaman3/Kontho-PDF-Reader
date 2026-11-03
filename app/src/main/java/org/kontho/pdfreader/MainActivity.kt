@@ -21,8 +21,10 @@ import android.graphics.drawable.LayerDrawable
 import android.os.Handler
 import android.os.Looper
 import android.graphics.pdf.PdfRenderer
+import android.graphics.pdf.LoadParams
 import android.net.Uri
 import android.os.Bundle
+import android.os.Build
 import android.os.CancellationSignal
 import android.os.ParcelFileDescriptor
 import android.provider.OpenableColumns
@@ -69,6 +71,7 @@ import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import com.tom_roush.pdfbox.io.MemoryUsageSetting
 import com.tom_roush.pdfbox.pdmodel.PDDocument
+import com.tom_roush.pdfbox.pdmodel.encryption.InvalidPasswordException
 import com.tom_roush.pdfbox.text.PDFTextStripper
 import com.googlecode.tesseract.android.TessBaseAPI
 import java.io.File
@@ -106,6 +109,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private var currentBook: Book? = null
     private var fileDescriptor: ParcelFileDescriptor? = null
     private var pdfRenderer: PdfRenderer? = null
+    private var decryptedPdfCacheFile: File? = null
+    @Volatile private var activePdfPassword: String? = null
     @Volatile private var currentPage = 0
     private var pageCount = 0
     private var pageText = ""
@@ -360,6 +365,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         showingLibrary = true
         applyKeepScreenAwakeFlag()
         currentBook = null
+        activePdfPassword = null
         WindowCompat.setDecorFitsSystemWindows(window, false)
         window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_VISIBLE
 
@@ -684,11 +690,12 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             setBackgroundColor(Color.rgb(238, 242, 240))
             setImageResource(android.R.drawable.ic_menu_gallery)
             scaleType = ImageView.ScaleType.FIT_CENTER
-            adjustViewBounds = false
+            adjustViewBounds = true
+            maxHeight = dp(320)
             contentDescription = "Cover of ${book.name}"
         }
         card.addView(cover, if (listMode) LinearLayout.LayoutParams(dp(64), dp(88)).apply { marginEnd = dp(10) }
-            else LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(176)))
+            else LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         val title = TextView(this).apply {
             text = book.name.removeSuffixIgnoreCase(".pdf")
             tag = "book_title"
@@ -775,7 +782,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         }
     }
 
-    private fun openBook(book: Book, initialPage: Int = 0) {
+    private fun openBook(book: Book, initialPage: Int = 0, password: String? = null) {
+        activePdfPassword = password
         if (libraryScanRunning) {
             libraryScanGeneration++
             libraryScanRunning = false
@@ -804,15 +812,36 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         worker.execute {
             try {
                 closeCurrentRenderer()
-                val descriptor = contentResolver.openFileDescriptor(book.uri, "r")
+                val sourceDescriptor = contentResolver.openFileDescriptor(book.uri, "r")
                     ?: throw IOException("Could not open this PDF.")
-                val fileSize = descriptor.statSize
+                val fileSize = sourceDescriptor.statSize
                 if (fileSize > MAX_PDF_BYTES) {
-                    descriptor.close()
+                    sourceDescriptor.close()
                     throw IOException("This PDF is larger than 250 MB. Please choose a smaller or optimized copy.")
                 }
-                fileDescriptor = descriptor
-                val renderer = PdfRenderer(descriptor)
+
+                val renderer = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) {
+                    // Android 15+ supports encrypted PDFs directly in PdfRenderer.
+                    fileDescriptor = sourceDescriptor
+                    PdfRenderer(
+                        sourceDescriptor,
+                        LoadParams.Builder().setPassword(password).build()
+                    )
+                } else if (password == null) {
+                    fileDescriptor = sourceDescriptor
+                    PdfRenderer(sourceDescriptor)
+                } else {
+                    // Older Android versions need PDFBox to decrypt a temporary copy.
+                    sourceDescriptor.close()
+                    val decrypted = createDecryptedPdfCache(book.uri, password)
+                    decryptedPdfCacheFile = decrypted
+                    val decryptedDescriptor = ParcelFileDescriptor.open(
+                        decrypted,
+                        ParcelFileDescriptor.MODE_READ_ONLY
+                    )
+                    fileDescriptor = decryptedDescriptor
+                    PdfRenderer(decryptedDescriptor)
+                }
                 pdfRenderer = renderer
                 if (renderer.pageCount > MAX_PDF_PAGES) {
                     throw IOException("This PDF has more than 2,000 pages. Please split it into smaller files.")
@@ -832,7 +861,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 }
                 if (sizes.isEmpty()) throw IOException("This PDF has no pages.")
                 val markup = try {
-                    PdfMarkupSupport.read(contentResolver, book.uri)
+                    PdfMarkupSupport.read(contentResolver, book.uri, password)
                 } catch (_: Exception) {
                     PdfMarkupSnapshot(emptyMap(), emptyMap())
                 }
@@ -851,9 +880,14 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 }
             } catch (error: Exception) {
                 closeCurrentRenderer()
+                activePdfPassword = null
                 runOnUiThread {
                     if (generation == readerGeneration && currentBook?.uri == book.uri && !showingLibrary) {
-                        Toast.makeText(this, "Could not open PDF: ${error.localizedMessage ?: "unknown error"}", Toast.LENGTH_LONG).show()
+                        if (error is SecurityException || error is InvalidPasswordException) {
+                            requestPdfPassword(book, initialPage, incorrect = password != null)
+                        } else {
+                            Toast.makeText(this, "Could not open PDF: ${error.localizedMessage ?: "unknown error"}", Toast.LENGTH_LONG).show()
+                        }
                     }
                 }
             }
@@ -917,20 +951,26 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             text = currentBook?.name ?: ""
             textSize = 14f
             gravity = Gravity.CENTER_VERTICAL
-            setTextColor(Color.WHITE)
-            setPadding(dp(8), 0, dp(6), 0)
+            setTextColor(if (dark) Color.rgb(246, 249, 247) else Color.rgb(18, 76, 66))
+            background = GradientDrawable().apply {
+                cornerRadius = dp(12).toFloat()
+                setColor(if (dark) Color.argb(232, 27, 36, 32) else Color.argb(232, 255, 255, 255))
+                setStroke(dp(1), if (dark) Color.argb(190, 198, 224, 211) else Color.argb(150, 18, 76, 66))
+            }
+            setPadding(dp(12), 0, dp(10), 0)
             setSingleLine(true)
             ellipsize = android.text.TextUtils.TruncateAt.MARQUEE
             marqueeRepeatLimit = -1
             isSelected = true
+            elevation = dp(7).toFloat()
             contentDescription = currentBook?.name ?: "PDF file name"
         }
         root.addView(readerPageTitle, FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, dp(52), Gravity.TOP or Gravity.START
+            ViewGroup.LayoutParams.MATCH_PARENT, dp(44), Gravity.TOP or Gravity.START
         ).apply {
-            topMargin = dp(12)
+            topMargin = dp(16)
             leftMargin = dp(10)
-            rightMargin = dp(72)
+            rightMargin = dp(78)
         })
 
         readerMenuButton = TextView(this).apply {
@@ -1509,6 +1549,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         if (!::readerMenuButton.isInitialized || showingLibrary) return
         mainHandler.removeCallbacks(hideReaderOverlaysRunnable)
         readerMenuButton.visibility = View.VISIBLE
+        if (::readerPageTitle.isInitialized) readerPageTitle.visibility = View.VISIBLE
         if (::pageScrubber.isInitialized) pageScrubber.visibility = View.VISIBLE
         readerPlaybackPanel.visibility = if (isNarrating || narrationPaused) View.VISIBLE else View.GONE
         readerPauseButton.text = if (isNarrating && !narrationPaused) "Ⅱ" else "▶"
@@ -2199,7 +2240,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         }
     }
 
-    private fun extractText(uri: Uri, pageNumber: Int): String {
+    private fun extractText(uri: Uri, pageNumber: Int, password: String? = activePdfPassword): String {
         val fileSize = contentResolver.openFileDescriptor(uri, "r")?.use { it.statSize }
             ?: throw IOException("Could not inspect this PDF.")
         if (fileSize > MAX_PDF_BYTES) {
@@ -2207,7 +2248,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         }
         contentResolver.openInputStream(uri).use { input ->
             if (input == null) return ""
-            PDDocument.load(input, MemoryUsageSetting.setupTempFileOnly()).use { document ->
+            PDDocument.load(input, password.orEmpty(), MemoryUsageSetting.setupTempFileOnly()).use { document ->
                 val stripper = PDFTextStripper().apply {
                     startPage = pageNumber
                     endPage = pageNumber
@@ -2344,22 +2385,43 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
             ))
         }
+        fun selectedText(): String {
+            val start = textView.selectionStart
+            val end = textView.selectionEnd
+            val value = textView.text.toString()
+            return if (start >= 0 && end > start && end <= value.length) {
+                value.substring(start, end).trim()
+            } else value.trim()
+        }
+        val defineButton = Button(this).apply {
+            text = "Define in browser"
+            isAllCaps = false
+        }
+        val selectionContent = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(scroll, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(360)
+            ))
+            addView(defineButton, matchWrap())
+        }
         val dialog = AlertDialog.Builder(this)
             .setTitle("Select text · Page ${pageIndex + 1}")
-            .setMessage("Long-press and drag to select the words you need. With no selection, the whole page text is used.")
-            .setView(scroll)
-            .setNegativeButton("Define in browser", null)
+            .setView(selectionContent)
+            .setNegativeButton("Back", null)
             .setNeutralButton("Copy", null)
             .setPositiveButton("Search web", null)
             .create()
         dialog.setOnShowListener {
-            fun selectedText(): String {
-                val start = textView.selectionStart
-                val end = textView.selectionEnd
-                val value = textView.text.toString()
-                return if (start >= 0 && end > start && end <= value.length) {
-                    value.substring(start, end).trim()
-                } else value.trim()
+            dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener {
+                dialog.dismiss()
+            }
+            defineButton.setOnClickListener {
+                val selected = selectedText().take(500)
+                if (selected.isBlank()) toast("Select a word or phrase first.")
+                else {
+                    dialog.dismiss()
+                    openSearchInDefaultBrowser(selected, define = true)
+                }
             }
             dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
                 val selected = selectedText()
@@ -2374,12 +2436,10 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                 val selected = selectedText().take(1500)
                 if (selected.isBlank()) toast("Select some text first.")
-                else openSearchInDefaultBrowser(selected, define = false)
-            }
-            dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener {
-                val selected = selectedText().take(500)
-                if (selected.isBlank()) toast("Select a word or phrase first.")
-                else openSearchInDefaultBrowser(selected, define = true)
+                else {
+                    dialog.dismiss()
+                    openSearchInDefaultBrowser(selected, define = false)
+                }
             }
         }
         dialog.show()
@@ -3406,6 +3466,75 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private fun coverPageKey(uri: Uri) = "cover_page_${uri.toString().hashCode()}"
     private fun recentNameKey(uri: Uri) = "recent_name_${uri.toString().hashCode()}"
 
+    /**
+     * Older Android versions cannot pass a password to PdfRenderer. Decrypt to
+     * an app-private temporary file for rendering, without changing the source.
+     * The file is removed as soon as the active renderer closes.
+     */
+    private fun createDecryptedPdfCache(uri: Uri, password: String): File {
+        val decrypted = File.createTempFile("kontho-unlocked-", ".pdf", cacheDir)
+        try {
+            val input = contentResolver.openInputStream(uri)
+                ?: throw IOException("Could not read this password-protected PDF.")
+            input.use {
+                PDDocument.load(it, password, MemoryUsageSetting.setupTempFileOnly()).use { document ->
+                    document.setAllSecurityToBeRemoved(true)
+                    document.save(decrypted)
+                }
+            }
+            if (!decrypted.isFile || decrypted.length() <= 0L) {
+                throw IOException("Could not prepare the protected PDF for this Android version.")
+            }
+            return decrypted
+        } catch (error: Exception) {
+            decrypted.delete()
+            throw error
+        }
+    }
+
+    private fun requestPdfPassword(book: Book, initialPage: Int, incorrect: Boolean) {
+        if (isFinishing || isDestroyed || showingLibrary || currentBook?.uri != book.uri) return
+
+        val passwordInput = EditText(this).apply {
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            imeOptions = EditorInfo.IME_ACTION_DONE
+            isSingleLine = true
+            hint = "PDF password"
+            setPadding(dp(14), dp(10), dp(14), dp(10))
+        }
+        val dialog = AlertDialog.Builder(this)
+            .setTitle(if (incorrect) "Incorrect PDF password" else "Password-protected PDF")
+            .setMessage(
+                if (incorrect) "That password did not unlock this PDF. Please try again."
+                else "Enter the password to open this PDF. Kontho keeps it in memory only while this document is open."
+            )
+            .setView(passwordInput)
+            .setNegativeButton("Back to library", null)
+            .setPositiveButton("Open PDF", null)
+            .create()
+
+        dialog.setOnCancelListener {
+            if (!isFinishing && !isDestroyed && currentBook?.uri == book.uri) showLibrary()
+        }
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener {
+                dialog.dismiss()
+                showLibrary()
+            }
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val password = passwordInput.text?.toString().orEmpty()
+                if (password.isEmpty()) {
+                    passwordInput.error = "Enter the PDF password"
+                    return@setOnClickListener
+                }
+                dialog.dismiss()
+                openBook(book, initialPage, password)
+            }
+        }
+        dialog.show()
+        passwordInput.requestFocus()
+    }
+
     private fun closeCurrentRenderer() {
         try {
             pdfRenderer?.close()
@@ -3417,6 +3546,10 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         } catch (_: Exception) {
         }
         fileDescriptor = null
+        decryptedPdfCacheFile?.let { file ->
+            try { file.delete() } catch (_: Exception) { }
+        }
+        decryptedPdfCacheFile = null
     }
 
     private fun actionButton(label: String, action: () -> Unit): Button {
