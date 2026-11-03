@@ -81,7 +81,7 @@ class SettingsActivity : ComponentActivity() {
         setTheme(if (dark) android.R.style.Theme_Material_NoActionBar else android.R.style.Theme_Material_Light_NoActionBar)
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
-        WindowInsetsControllerCompat(window, window.decorView).isAppearanceLightStatusBars = !dark
+        WindowInsetsControllerCompat(window, window.decorView).isAppearanceLightStatusBars = false
         if (firstRun && !prefs.getBoolean("setup_done", false)) {
             renderSetupStep()
         } else {
@@ -106,7 +106,7 @@ class SettingsActivity : ComponentActivity() {
         val muted = if (dark) Color.rgb(187, 201, 195) else Color.rgb(99, 117, 109)
         val accent = Color.rgb(18, 104, 84)
 
-        window.statusBarColor = if (dark) Color.rgb(20, 28, 26) else Color.rgb(18, 76, 66)
+        window.statusBarColor = Color.rgb(112, 119, 116)
         window.navigationBarColor = window.statusBarColor
 
         val root = LinearLayout(this).apply {
@@ -389,10 +389,10 @@ class SettingsActivity : ComponentActivity() {
             "light" -> false
             else -> (resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
         }
-        window.statusBarColor = if (dark) Color.rgb(20, 28, 26) else Color.rgb(18, 76, 66)
+        window.statusBarColor = Color.rgb(112, 119, 116)
         window.navigationBarColor = window.statusBarColor
         WindowCompat.setDecorFitsSystemWindows(window, false)
-        WindowInsetsControllerCompat(window, window.decorView).isAppearanceLightStatusBars = !dark
+        WindowInsetsControllerCompat(window, window.decorView).isAppearanceLightStatusBars = false
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(24), dp(20), dp(24), dp(20))
@@ -583,11 +583,11 @@ class SettingsActivity : ComponentActivity() {
                 }.setNegativeButton(label("Cancel", "বাতিল"), null).show()
         }
 
-        val columns = prefs.getInt("grid_columns", 2).coerceIn(2, 4)
+        val columns = prefs.getInt("grid_columns", 2).coerceIn(1, 10)
         addRow(label("Grid columns", "গ্রিড কলাম"), "$columns") {
             AlertDialog.Builder(this).setTitle(label("Grid columns", "গ্রিড কলাম"))
-                .setSingleChoiceItems(arrayOf("2", "3", "4"), columns - 2) { dialog, which ->
-                    prefs.edit().putInt("grid_columns", which + 2).apply()
+                .setSingleChoiceItems((1..10).map { it.toString() }.toTypedArray(), columns - 1) { dialog, which ->
+                    prefs.edit().putInt("grid_columns", which + 1).apply()
                     dialog.dismiss(); render()
                 }.setNegativeButton(label("Cancel", "বাতিল"), null).show()
         }
@@ -697,19 +697,21 @@ class SettingsActivity : ComponentActivity() {
         }
 
         addSection(label("UPDATES & ABOUT", "আপডেট ও পরিচিতি"))
-        addRow(label("About Kontho", "কণ্ঠ পরিচিতি"), label("Version 0.6.8 · Bangla PDF reader", "সংস্করণ ০.৬.৮ · বাংলা PDF রিডার")) {
+        val appVersion = BuildConfig.VERSION_NAME
+        addRow(label("About Kontho", "কণ্ঠ পরিচিতি"), label("Version $appVersion · Bangla PDF reader", "সংস্করণ $appVersion · বাংলা PDF রিডার")) {
             AlertDialog.Builder(this)
                 .setTitle("কণ্ঠ · Kontho PDF Reader")
-                .setMessage(label("Version 0.6.8\nRead PDFs, use Bengali/English OCR, and listen through Android text-to-speech.", "সংস্করণ ০.৬.৮\nPDF পড়ুন, বাংলা/ইংরেজি OCR ব্যবহার করুন এবং Android-এর কণ্ঠে শুনুন।"))
-                .setPositiveButton(label("OK", "ঠিক আছে"), null).show()
+                .setMessage(label("Version $appVersion\nRead PDFs, use Bengali/English OCR, and listen through Android text-to-speech.", "সংস্করণ $appVersion\nPDF পড়ুন, বাংলা/ইংরেজি OCR ব্যবহার করুন এবং Android-এর কণ্ঠে শুনুন।"))
+                .setNeutralButton(label("GitHub project", "GitHub প্রকল্প")) { _, _ -> openProjectPage() }
+                .setPositiveButton(label("OK", "ঠিক আছে"), null)
+                .show()
         }
 
-        addRow(label("GitHub project", "GitHub প্রকল্প"), label("Source code, releases and project updates", "সোর্স কোড, রিলিজ ও প্রকল্পের আপডেট")) {
-            try {
-                startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/tariquzzaman3/Kontho-PDF-Reader")).addCategory(Intent.CATEGORY_BROWSABLE))
-            } catch (_: Exception) {
-                Toast.makeText(this, label("Could not open GitHub.", "GitHub খোলা যায়নি।"), Toast.LENGTH_LONG).show()
-            }
+        addRow(
+            label("Latest changelog", "সর্বশেষ পরিবর্তন"),
+            label("Load the newest release notes from GitHub", "GitHub থেকে সর্বশেষ রিলিজের পরিবর্তন দেখুন")
+        ) {
+            showLatestChangelog()
         }
 
         addRow(
@@ -785,6 +787,60 @@ class SettingsActivity : ComponentActivity() {
         }
     }
 
+    private fun openProjectPage() {
+        try {
+            startActivity(
+                Intent(
+                    Intent.ACTION_VIEW,
+                    Uri.parse("https://github.com/tariquzzaman3/Kontho-PDF-Reader")
+                ).addCategory(Intent.CATEGORY_BROWSABLE)
+            )
+        } catch (_: Exception) {
+            Toast.makeText(this, label("Could not open GitHub.", "GitHub খোলা যায়নি।"), Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun showLatestChangelog() {
+        Toast.makeText(this, label("Loading the latest changelog…", "সর্বশেষ পরিবর্তনের বিবরণ আনা হচ্ছে…"), Toast.LENGTH_SHORT).show()
+        GithubReleaseChecker.check(this) { result ->
+            if (isFinishing || isDestroyed) return@check
+            if (result.latestVersion == null) {
+                AlertDialog.Builder(this)
+                    .setTitle(label("Latest changelog unavailable", "সর্বশেষ পরিবর্তন পাওয়া যায়নি"))
+                    .setMessage(label(
+                        "Could not load release notes from GitHub. Details: ${result.errorMessage ?: "unknown error"}",
+                        "GitHub থেকে রিলিজের বিবরণ আনা যায়নি। কারণ: ${result.errorMessage ?: "অজানা ত্রুটি"}"
+                    ))
+                    .setPositiveButton(label("Close", "বন্ধ"), null)
+                    .show()
+                return@check
+            }
+
+            val notes = result.releaseNotes?.let { formatReleaseNotes(it) }
+                ?.takeIf { it.isNotBlank() }
+                ?: label("The latest GitHub release has no changelog yet.", "সর্বশেষ GitHub রিলিজে এখনো পরিবর্তনের বিবরণ নেই।")
+            AlertDialog.Builder(this)
+                .setTitle("${result.releaseTitle ?: "Kontho PDF Reader"} · ${result.latestVersion}")
+                .setMessage(notes)
+                .setPositiveButton(label("Open release", "রিলিজ খুলুন")) { _, _ ->
+                    openReleasePage(result.releaseUrl)
+                }
+                .setNegativeButton(label("Close", "বন্ধ"), null)
+                .show()
+        }
+    }
+
+    private fun formatReleaseNotes(markdown: String): String =
+        markdown.lineSequence().map { sourceLine ->
+            var line = sourceLine.trim()
+            line = line.replace(Regex("^#{1,6}\\s*"), "")
+            line = line.replace(Regex("^[-*+]\\s+"), "• ")
+            line = Regex("\\[([^]]+)]\\((https?://[^)]+)\\)").replace(line) { match ->
+                "${match.groupValues[1]} (${match.groupValues[2]})"
+            }
+            line
+        }.joinToString("\n").trim()
+
     private fun checkForUpdates(manual: Boolean) {
         if (manual) {
             Toast.makeText(this, label("Checking GitHub for updates…", "GitHub-এ আপডেট খোঁজা হচ্ছে…"), Toast.LENGTH_SHORT).show()
@@ -844,9 +900,24 @@ class SettingsActivity : ComponentActivity() {
             return
         }
         try {
-            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addCategory(Intent.CATEGORY_BROWSABLE))
+            val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+                addCategory(Intent.CATEGORY_BROWSABLE)
+            }
+            // Resolve the user's default HTTPS browser explicitly so the APK is
+            // handled by that browser, not by the app's private storage.
+            val browserPackage = packageManager.resolveActivity(
+                browserIntent,
+                android.content.pm.PackageManager.MATCH_DEFAULT_ONLY
+            )?.activityInfo?.packageName
+            if (!browserPackage.isNullOrBlank() &&
+                browserPackage != "android" &&
+                browserPackage != packageName
+            ) {
+                browserIntent.setPackage(browserPackage)
+            }
+            startActivity(browserIntent)
         } catch (_: Exception) {
-            Toast.makeText(this, label("No default browser is available.", "ডিফল্ট ব্রাউজার পাওয়া যায়নি।"), Toast.LENGTH_LONG).show()
+            Toast.makeText(this, label("Could not open your default browser.", "ডিফল্ট ব্রাউজার খোলা যায়নি।"), Toast.LENGTH_LONG).show()
         }
     }
 
