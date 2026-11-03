@@ -6,9 +6,9 @@ Kontho (কণ্ঠ) is an Android application built with Kotlin for reading Ba
 
 ## Download
 
-Download **Kontho PDF Reader 0.6.2** from the [GitHub Releases page](https://github.com/tariquzzaman3/Kontho-PDF-Reader/releases/tag/v0.6.2), or [download the APK directly](https://github.com/tariquzzaman3/Kontho-PDF-Reader/releases/download/v0.6.2/Kontho-PDF-Reader-v0.6.2.apk).
+Download **Kontho PDF Reader 0.6.3** from the [GitHub Releases page](https://github.com/tariquzzaman3/Kontho-PDF-Reader/releases/tag/v0.6.3), or [download the APK directly](https://github.com/tariquzzaman3/Kontho-PDF-Reader/releases/download/v0.6.3/Kontho-PDF-Reader-v0.6.3.apk).
 
-This stable APK uses Kontho’s persistent release-signing key so future updates can install over the same app. Earlier builds used temporary debug signing keys, so moving to 0.6.2 may require a one-time uninstall/reinstall; uninstalling can clear Kontho’s settings and OCR cache. Keep your PDFs backed up. Kontho is distributed through GitHub and is **not a Google Play release**. Bangla OCR accuracy depends on scan quality, and spoken Bangla depends on the TTS voice installed on your device. Test the app on your own PDFs before relying on it.
+This stable APK uses the same persistent release-signing key as version 0.6.2, so it should install over 0.6.2 without uninstalling or clearing app data. Builds signed with an older temporary debug key may still require a one-time uninstall/reinstall. Keep your PDFs backed up. Kontho is distributed through GitHub and is **not a Google Play release**. Bangla OCR accuracy depends on scan quality, and spoken Bangla depends on the TTS voice installed on your device. Test the app on your own PDFs before relying on it.
 
 ## Support Kontho
 
@@ -43,7 +43,7 @@ This link opens the external support page; no personal bank-account number is pu
 ### PDF library and reader
 
 - Import PDFs through Android's document picker or select a folder for the library to scan.
-- Browse books in grid or list view, sort by name or modification date, and choose a page for a book's thumbnail.
+- Browse books in grid or list view, sort by name or modification date, and choose a page for a book's thumbnail. During folder scans, each PDF appears as soon as it is discovered; the selected sort order is restored when scanning finishes.
 - Read pages in one continuous vertical scroll and use pinch gestures or the reader menu to adjust zoom.
 - Rotate the reading screen, keep the display awake while a PDF is open, jump to a page, share a PDF, print it, or save a copy.
 - Use light, dark, or system appearance and choose English or বাংলা for the app interface.

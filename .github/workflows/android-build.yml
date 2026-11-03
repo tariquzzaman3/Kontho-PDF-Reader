@@ -111,8 +111,8 @@ jobs:
             exit 1
           fi
           "$APKSIGNER" verify "$apk"
-          cp "$apk" "Kontho-PDF-Reader-v0.6.2.apk"
-          test -s "Kontho-PDF-Reader-v0.6.2.apk"
+          cp "$apk" "Kontho-PDF-Reader-v0.6.3.apk"
+          test -s "Kontho-PDF-Reader-v0.6.3.apk"
 
       - name: Publish stable release to GitHub Releases
         env:
@@ -120,23 +120,24 @@ jobs:
         shell: bash
         run: |
           cat > release-notes.md <<'NOTES'
-          ## Kontho PDF Reader 0.6.2
+          ## Kontho PDF Reader 0.6.3
 
-          This stable GitHub release of Kontho 0.6.2 improves in-app update downloads and preserves release signing for future updates, alongside default PDF reader support, Bangla OCR and read-aloud features.
+          This stable GitHub release of Kontho 0.6.3 adds progressive PDF library scanning: recent books appear first and each folder PDF is added as it is discovered, while the selected sort order is restored when scanning completes. It also preserves the existing release-signing key and includes Bangla OCR, read-aloud and direct update downloads.
 
           - Bangla, English, and Bangla + English OCR.
           - Accurate-OCR read-aloud with page-ahead scanning and optional continuous reading.
           - Configurable OCR text cache and reading-position controls.
           - Keep-screen-awake option and confirmation before stopping active continuous OCR narration from the player or reader Back action.
           - Choose Kontho as the default PDF handler on Android, and open PDFs launched from other apps.
+          - Show PDFs incrementally during folder scans, then restore the selected sort order without rebuilding all cover thumbnails.
           - Select and preview supported Bangla TTS voices available on the device; actual voice quality depends on the installed speech engine.
 
           **Signing and testing:** This APK is signed using the persistent Kontho release key and is published for direct GitHub installation. It is not a Google Play release. Keep the signing key backed up securely; future updates must use the same key. Bangla voice quality depends on the TTS engine and voice installed on the device. OCR accuracy varies with page quality and layout. Please test with your own PDFs before relying on it.
           NOTES
 
-          gh release create "v0.6.2" \
-            "Kontho-PDF-Reader-v0.6.2.apk" \
+          gh release create "v0.6.3" \
+            "Kontho-PDF-Reader-v0.6.3.apk" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
-            --title "Kontho PDF Reader 0.6.2" \
+            --title "Kontho PDF Reader 0.6.3" \
             --notes-file release-notes.md
