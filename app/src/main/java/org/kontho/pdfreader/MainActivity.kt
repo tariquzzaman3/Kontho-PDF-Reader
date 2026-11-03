@@ -909,6 +909,26 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT
         ))
 
+        readerPageTitle = TextView(this).apply {
+            text = currentBook?.name ?: ""
+            textSize = 14f
+            gravity = Gravity.CENTER_VERTICAL
+            setTextColor(Color.WHITE)
+            setPadding(dp(8), 0, dp(6), 0)
+            setSingleLine(true)
+            ellipsize = android.text.TextUtils.TruncateAt.MARQUEE
+            marqueeRepeatLimit = -1
+            isSelected = true
+            contentDescription = currentBook?.name ?: "PDF file name"
+        }
+        root.addView(readerPageTitle, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, dp(52), Gravity.TOP or Gravity.START
+        ).apply {
+            topMargin = dp(12)
+            leftMargin = dp(10)
+            rightMargin = dp(72)
+        })
+
         readerMenuButton = TextView(this).apply {
             text = "⋮"
             textSize = 30f
@@ -935,6 +955,68 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             Gravity.TOP or Gravity.END).apply {
             topMargin = dp(12)
             marginEnd = dp(12)
+        })
+
+        var scrubberDownRawY = 0f
+        var scrubberDownAt = 0L
+        var scrubberDragging = false
+        val scrubberTouchSlop = ViewConfiguration.get(this).scaledTouchSlop
+        pageScrubber = TextView(this).apply {
+            textSize = 10f
+            gravity = Gravity.CENTER
+            setTextColor(Color.WHITE)
+            text = "⋮\n1/$pageCount"
+            background = glassBackground()
+            elevation = dp(8).toFloat()
+            setPadding(dp(5), dp(5), dp(5), dp(5))
+            contentDescription = "Drag to scroll through PDF pages"
+            visibility = View.GONE
+            setOnTouchListener { view, event ->
+                when (event.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> {
+                        scrubberDownRawY = event.rawY
+                        scrubberDownAt = event.eventTime
+                        scrubberDragging = false
+                        true
+                    }
+                    MotionEvent.ACTION_MOVE -> {
+                        val moved = kotlin.math.abs(event.rawY - scrubberDownRawY)
+                        if (!scrubberDragging && moved > maxOf(scrubberTouchSlop.toFloat(), dp(9).toFloat()) &&
+                            event.eventTime - scrubberDownAt >= 180L
+                        ) {
+                            scrubberDragging = true
+                            view.alpha = 1f
+                            view.scaleX = 1.06f
+                            view.scaleY = 1.06f
+                        }
+                        if (scrubberDragging) {
+                            val location = IntArray(2)
+                            root.getLocationOnScreen(location)
+                            val trackTop = dp(58)
+                            val trackBottom = (root.height - dp(78)).coerceAtLeast(trackTop + dp(1))
+                            val fraction = ((event.rawY - location[1] - trackTop) /
+                                (trackBottom - trackTop).toFloat()).coerceIn(0f, 1f)
+                            val maximumScroll = (pagesContainer.height - readerScroll.height).coerceAtLeast(0)
+                            readerScroll.scrollTo(0, (maximumScroll * fraction).roundToInt())
+                        }
+                        true
+                    }
+                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                        if (scrubberDragging) {
+                            view.scaleX = 1f
+                            view.scaleY = 1f
+                            showReaderOverlays()
+                        }
+                        scrubberDragging = false
+                        true
+                    }
+                    else -> true
+                }
+            }
+        }
+        root.addView(pageScrubber, FrameLayout.LayoutParams(dp(58), dp(62),
+            Gravity.END or Gravity.CENTER_VERTICAL).apply {
+            marginEnd = dp(5)
         })
 
         readerPlaybackPanel = LinearLayout(this).apply {
@@ -1265,7 +1347,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 .roundToInt().coerceAtLeast(dp(160))
             val border = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
-                setColor(Color.WHITE)
+                setColor(if (preferences.getBoolean("pdf_invert_colors", false)) Color.BLACK else Color.WHITE)
                 setStroke(dp(1), Color.rgb(185, 191, 188))
                 cornerRadius = dp(2).toFloat()
             }
@@ -1276,15 +1358,27 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 setPadding(dp(1), dp(1), dp(1), dp(1))
                 contentDescription = "PDF page ${index + 1} of ${pageDimensions.size}"
             }
-            pagesContainer.addView(image, LinearLayout.LayoutParams(imageWidth, pageHeight).apply {
+            val pageFrame = FrameLayout(this).apply {
+                clipChildren = false
+                clipToPadding = false
+                addView(image, FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT
+                ))
+            }
+            pagesContainer.addView(pageFrame, LinearLayout.LayoutParams(imageWidth, pageHeight).apply {
                 leftMargin = dp(2)
                 rightMargin = dp(2)
                 bottomMargin = dp(5)
             })
             pageImages.add(image)
+            pageFrames.add(pageFrame)
+            installPageInteractions(image, index)
         }
         currentPage = restorePage.coerceIn(0, (pageDimensions.size - 1).coerceAtLeast(0))
         pageText = pageTextCache[currentPage].orEmpty()
+        refreshPdfCommentMarkers()
+        applyPdfColorMode()
+        updatePageScrubberLabel()
         if (pageDimensions.isNotEmpty()) setBusy("Loading PDF page ${currentPage + 1}…")
         readerScroll.post {
             if (generation == readerGeneration && !showingLibrary && pageImages.isNotEmpty()) {
@@ -1404,21 +1498,30 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         pageTextCache.clear()
         pageDimensions = emptyList()
         pageImages.clear()
+        pageFrames.clear()
     }
 
     private fun showReaderOverlays() {
         if (!::readerMenuButton.isInitialized || showingLibrary) return
         mainHandler.removeCallbacks(hideReaderOverlaysRunnable)
         readerMenuButton.visibility = View.VISIBLE
+        if (::pageScrubber.isInitialized) pageScrubber.visibility = View.VISIBLE
         readerPlaybackPanel.visibility = if (isNarrating || narrationPaused) View.VISIBLE else View.GONE
         readerPauseButton.text = if (isNarrating && !narrationPaused) "Ⅱ" else "▶"
+        updatePageScrubberLabel()
         mainHandler.postDelayed(hideReaderOverlaysRunnable, 2_000L)
     }
 
     private fun hideReaderOverlays() {
         if (!::readerMenuButton.isInitialized) return
         readerMenuButton.visibility = View.GONE
+        if (::pageScrubber.isInitialized) pageScrubber.visibility = View.GONE
         readerPlaybackPanel.visibility = if (isNarrating || narrationPaused) View.VISIBLE else View.GONE
+    }
+
+    private fun updatePageScrubberLabel() {
+        if (!::pageScrubber.isInitialized) return
+        pageScrubber.text = "⋮\n${(currentPage + 1).coerceAtLeast(1)}/${pageCount.coerceAtLeast(1)}"
     }
 
     private fun showReaderMenu(anchor: View) {
@@ -1644,6 +1747,39 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         content.addView(zoomShareDivider, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, dp(1)
         ))
+        addAction(label("Select text · copy / search", "লেখা বাছাই · কপি / খুঁজুন"), {
+            showPageTextSelectionDialog(currentPage)
+        })
+        addAction(label("Add comment to this page", "এই পাতায় মন্তব্য যোগ করুন"), {
+            showAddCommentDialog()
+        })
+        val commentsVisible = preferences.getBoolean("show_pdf_comments", true)
+        addAction(
+            label(
+                if (commentsVisible) "Hide comments" else "Show comments",
+                if (commentsVisible) "মন্তব্য লুকান" else "মন্তব্য দেখান"
+            ),
+            {
+                preferences.edit().putBoolean("show_pdf_comments", !commentsVisible).apply()
+                refreshPdfCommentMarkers()
+            }
+        )
+        val inverted = preferences.getBoolean("pdf_invert_colors", false)
+        addAction(
+            label(
+                if (inverted) "Use normal PDF colors" else "Invert PDF colors · Night view",
+                if (inverted) "PDF-এর স্বাভাবিক রং" else "PDF-এর রং উল্টে দিন · রাতের মোড"
+            ),
+            {
+                preferences.edit().putBoolean("pdf_invert_colors", !inverted).apply()
+                applyPdfColorMode()
+            }
+        )
+        if (pendingPdfComments.isNotEmpty()) {
+            addAction(label("Save comments to original PDF", "মন্তব্য মূল PDF-এ সংরক্ষণ করুন"), {
+                savePendingPdfComments()
+            })
+        }
         addAction(label("Rotate screen", "স্ক্রিন ঘোরান"), { rotateReaderScreen() })
         val keepScreenAwake = preferences.getBoolean(KEY_KEEP_SCREEN_AWAKE, false)
         addAction(
