@@ -6,6 +6,7 @@ import android.os.Looper
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
+import org.json.JSONObject
 
 data class UpdateCheckResult(
     val installedVersion: String,
@@ -19,13 +20,13 @@ data class UpdateCheckResult(
 }
 
 /**
- * Checks GitHub's public latest-release endpoint only. It never uploads PDFs,
- * OCR text, device identifiers, or other library contents.
+ * Checks GitHub's public latest-stable-release endpoint only. It never uploads
+ * PDFs, OCR text, device identifiers, or other library contents.
  */
 object GithubReleaseChecker {
     const val RELEASES_URL = "https://github.com/tariquzzaman3/Kontho-PDF-Reader/releases"
     private const val RELEASES_API =
-        "https://api.github.com/repos/tariquzzaman3/Kontho-PDF-Reader/releases?per_page=10"
+        "https://api.github.com/repos/tariquzzaman3/Kontho-PDF-Reader/releases/latest"
 
     fun check(context: Context, callback: (UpdateCheckResult) -> Unit) {
         val appContext = context.applicationContext
@@ -35,51 +36,78 @@ object GithubReleaseChecker {
             } catch (_: Exception) {
                 "0.0.0"
             }
+
             val result = try {
                 val connection = (URL(RELEASES_API).openConnection() as HttpURLConnection).apply {
-                    connectTimeout = 8_000
-                    readTimeout = 8_000
+                    connectTimeout = 15_000
+                    readTimeout = 15_000
                     requestMethod = "GET"
+                    instanceFollowRedirects = true
+                    useCaches = false
                     setRequestProperty("Accept", "application/vnd.github+json")
                     setRequestProperty("User-Agent", "Kontho-PDF-Reader-Android")
+                    setRequestProperty("Cache-Control", "no-cache")
+                    setRequestProperty("Pragma", "no-cache")
                 }
+
                 try {
                     val code = connection.responseCode
                     if (code != HttpURLConnection.HTTP_OK) {
-                        throw IOException("GitHub returned HTTP $code.")
+                        val details = connection.errorStream?.bufferedReader(Charsets.UTF_8)?.use {
+                            it.readText().take(240)
+                        }.orEmpty()
+                        throw IOException(
+                            "GitHub returned HTTP $code" +
+                                (connection.responseMessage?.let { " ($it)" } ?: "") + "." +
+                                (if (details.isNotBlank()) " $details" else "")
+                        )
                     }
-                    val releases = connection.inputStream.bufferedReader(Charsets.UTF_8).use {
-                        org.json.JSONArray(it.readText())
+
+                    val release = connection.inputStream.bufferedReader(Charsets.UTF_8).use {
+                        JSONObject(it.readText())
                     }
-                    val published = (0 until releases.length())
-                        .mapNotNull { index -> releases.optJSONObject(index) }
-                        .filterNot { candidate -> candidate.optBoolean("draft", false) }
-                    fun apkUrl(candidate: org.json.JSONObject): String? {
-                        val assets = candidate.optJSONArray("assets") ?: return null
-                        return (0 until assets.length())
-                            .mapNotNull { index -> assets.optJSONObject(index) }
-                            .firstOrNull { asset ->
-                                asset.optString("name").endsWith(".apk", ignoreCase = true) &&
-                                    asset.optString("browser_download_url").startsWith("https://github.com/tariquzzaman3/Kontho-PDF-Reader/releases/download/")
-                            }
-                            ?.optString("browser_download_url")
-                            ?.takeIf { it.isNotBlank() }
+
+                    if (release.optBoolean("draft", false) || release.optBoolean("prerelease", false)) {
+                        throw IOException("GitHub did not return a published stable release.")
                     }
-                    val release = published.firstOrNull { candidate ->
-                        !candidate.optBoolean("prerelease", false) && apkUrl(candidate) != null
-                    } ?: published.firstOrNull { candidate -> apkUrl(candidate) != null }
-                        ?: throw IOException("No published GitHub release with an APK was found.")
-                    val latest = release.optString("tag_name").ifBlank { release.optString("name") }.trim()
-                    if (latest.isBlank()) throw IOException("The latest GitHub release did not include a version.")
-                    val url = release.optString("html_url").takeIf { it.startsWith("https://") }
+
+                    val assets = release.optJSONArray("assets")
+                        ?: throw IOException("The latest GitHub release has no APK asset.")
+                    val apkUrl = (0 until assets.length())
+                        .mapNotNull { index -> assets.optJSONObject(index) }
+                        .firstOrNull { asset ->
+                            asset.optString("name").endsWith(".apk", ignoreCase = true) &&
+                                isTrustedApkDownloadUrl(asset.optString("browser_download_url"))
+                        }
+                        ?.optString("browser_download_url")
+                        ?.takeIf { it.isNotBlank() }
+                        ?: throw IOException("The latest GitHub release does not contain a trusted APK.")
+
+                    val latest = release.optString("tag_name")
+                        .ifBlank { release.optString("name") }
+                        .trim()
+                    if (latest.isBlank() || Regex("\\d+").find(latest) == null) {
+                        throw IOException("The latest GitHub release did not include a readable version tag.")
+                    }
+
+                    val releaseUrl = release.optString("html_url")
+                        .takeIf { it.startsWith("https://github.com/tariquzzaman3/Kontho-PDF-Reader/releases/") }
                         ?: RELEASES_URL
-                    UpdateCheckResult(installed, latest, url, apkUrl(release))
+
+                    UpdateCheckResult(installed, latest, releaseUrl, apkUrl)
                 } finally {
                     connection.disconnect()
                 }
             } catch (error: Exception) {
-                UpdateCheckResult(installed, null, null, null, error.localizedMessage ?: "Could not contact GitHub.")
+                UpdateCheckResult(
+                    installed,
+                    null,
+                    null,
+                    null,
+                    error.localizedMessage ?: "Could not contact GitHub."
+                )
             }
+
             Handler(Looper.getMainLooper()).post { callback(result) }
         }, "kontho-update-check").apply {
             isDaemon = true
@@ -104,9 +132,11 @@ object GithubReleaseChecker {
     fun isNewer(latest: String, installed: String): Boolean {
         fun components(version: String): List<Int> =
             Regex("\\d+").findAll(version).mapNotNull { it.value.toIntOrNull() }.toList()
+
         val latestParts = components(latest)
         val installedParts = components(installed)
         if (latestParts.isEmpty() || installedParts.isEmpty()) return false
+
         for (index in 0 until maxOf(latestParts.size, installedParts.size)) {
             val newer = latestParts.getOrElse(index) { 0 }
             val current = installedParts.getOrElse(index) { 0 }
