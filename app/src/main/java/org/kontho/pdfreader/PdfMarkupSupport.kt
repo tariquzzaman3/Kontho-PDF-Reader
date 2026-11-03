@@ -38,16 +38,16 @@ internal object PdfMarkupSupport {
             ?: throw IOException("Could not read PDF annotations.")
         input.use {
             PDDocument.load(it, MemoryUsageSetting.setupTempFileOnly()).use { document ->
-                for (pageIndex in 0 until document.numberOfPages) {
+                for (pageIndex in 0 until document.getNumberOfPages()) {
                     val page = document.getPage(pageIndex)
-                    val box = page.mediaBox
+                    val box = page.getMediaBox()
                     val pageWidth = box.width.coerceAtLeast(1f)
                     val pageHeight = box.height.coerceAtLeast(1f)
-                    for (annotation in page.annotations) {
-                        val rectangle = annotation.rectangle
+                    for (annotation in page.getAnnotations()) {
+                        val rectangle = annotation.getRectangle()
                         if (annotation is PDAnnotationLink && rectangle != null) {
-                            val action = annotation.action as? PDActionURI
-                            val target = action?.uri?.trim().orEmpty()
+                            val action = annotation.getAction() as? PDActionURI
+                            val target = action?.getURI()?.trim().orEmpty()
                             if (target.startsWith("https://", true) || target.startsWith("http://", true)) {
                                 val left = ((rectangle.lowerLeftX - box.lowerLeftX) / pageWidth).coerceIn(0f, 1f)
                                 val right = ((rectangle.upperRightX - box.lowerLeftX) / pageWidth).coerceIn(0f, 1f)
