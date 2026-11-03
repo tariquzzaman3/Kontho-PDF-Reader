@@ -712,7 +712,9 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 setMargins(dp(2), dp(3), dp(2), dp(3))
             })
         } else {
-            card.addView(title, matchWrap())
+            card.addView(title, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(40)
+            ))
             libraryGrid.addView(card, GridLayout.LayoutParams().apply {
                 width = 0
                 height = ViewGroup.LayoutParams.WRAP_CONTENT
@@ -3509,6 +3511,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         }
 
         val pageToRestore = currentPage
+        readerGeneration++
+        queuedPageRenders.clear()
         setBusy("Saving comments into the original PDF…")
         worker.execute {
             try {
