@@ -13,9 +13,12 @@ object BanglaTextPrep {
     private const val HASANTA = '্'
     private const val O_KAR = 'ো'
 
-    const val PAUSE_PHRASE_MS = 220
-    const val PAUSE_SENTENCE_MS = 450
-    const val PAUSE_PARAGRAPH_MS = 550
+    // Silence added at punctuation. All zero on purpose: the reader waited too long at every
+    // comma and full stop. Text is still split at punctuation, so each piece starts cleanly;
+    // raise these (e.g. 120 / 200 / 250) to bring a small pause back.
+    const val PAUSE_PHRASE_MS = 0
+    const val PAUSE_SENTENCE_MS = 0
+    const val PAUSE_PARAGRAPH_MS = 0
 
     /** Letter, its decomposed (base + nukta) spelling, and a fallback if the model knows neither. */
     private class NuktaLetter(val single: Char, val pair: String, val fallback: String)
@@ -107,11 +110,63 @@ object BanglaTextPrep {
                         break
                     }
                 }
-                if (nextHigh) out.append(O_KAR)
+                if (nextHigh && !closesPreviousSyllable(word, starts, ends, k)) out.append(O_KAR)
             }
         }
         return out.toString()
     }
+
+    /**
+     * Some bare consonants belong to the syllable before them and take no extra vowel:
+     * এক|টি, তিন|টি, দশ|টি (a counted word plus the -টি / -টু ending) and এক|দিন, এক|চিলতে
+     * (words that start with এক). Without this guard the vowel fix said "একোটি".
+     */
+    private fun closesPreviousSyllable(word: String, starts: List<Int>, ends: List<Int>, k: Int): Boolean {
+        if (k == 0) return false
+        if (k == 1 && starts[1] == 1 && word[0] == 'এ' && word[1] == 'ক') return true
+        val next = k + 1
+        if (next == starts.size - 1 && ends[next] - starts[next] == 2 && word[starts[next]] == 'ট') {
+            val sign = word[starts[next] + 1]
+            if (sign == 'ি' || sign == 'ু') return true
+        }
+        return false
+    }
+
+    // ------------------------------------------------------------------ word exceptions
+
+    /**
+     * Words the general rules get wrong, written as: spelling → how it should be spoken.
+     * The right-hand side is what the voice is given, so it is spelled the way it sounds.
+     * Add a word here when the reader says it wrongly.
+     */
+    private val pronunciationExceptions = mapOf(
+        "ইসলামী" to "ইছলামি",
+        "একটি" to "এক টি"
+    )
+
+    /** Endings that may be attached to an exception word (ইসলামীর, একটিতে). */
+    private val exceptionSuffixes = listOf("দের", "ের", "কে", "রা", "তে", "র", "ে")
+
+    /** The spoken form for a word in the exception list, or null if it is not listed. */
+    fun spokenForm(word: String): String? {
+        pronunciationExceptions[word]?.let { return it }
+        for (suffix in exceptionSuffixes) {
+            if (word.length > suffix.length && word.endsWith(suffix)) {
+                val stem = word.substring(0, word.length - suffix.length)
+                pronunciationExceptions[stem]?.let { return it + suffix }
+            }
+        }
+        return null
+    }
+
+    /**
+     * Respells every Bangla word for the voice: listed exceptions first, then (if enabled) the
+     * unwritten-vowel rule. Exceptions are applied even when the vowel fix is switched off.
+     */
+    fun respellWords(text: String, vowelFix: Boolean): String =
+        Regex("[\\u0980-\\u09FF]+").replace(text) { match ->
+            spokenForm(match.value) ?: if (vowelFix) harmonizeWord(match.value) else match.value
+        }
 
     // ------------------------------------------------------------------ numbers
 
@@ -217,7 +272,7 @@ object BanglaTextPrep {
     ): List<SpeechChunk> {
         var prepared = paragraph.replace("‌", "").replace("‍", "")
         prepared = fixNukta(prepared, symbols)
-        if (vowelFix) prepared = harmonizeVowels(prepared)
+        prepared = respellWords(prepared, vowelFix)
         // After the vowel fix, so the number words below keep their standard spelling.
         prepared = expandNumbers(prepared, symbols)
 

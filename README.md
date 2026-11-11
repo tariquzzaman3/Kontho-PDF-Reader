@@ -32,7 +32,7 @@ This link opens the external support page; no personal bank-account number is pu
 
 - Three reading voices in **Settings → Voice**, listed best first:
   1. **Azure neural voice** (online, optional): the most natural Bangla (Nabanita or Pradeep). You bring your own free Microsoft Azure Speech key (about 500,000 characters per month are free); Kontho shows how much this phone has used this month.
-  2. **Offline Bangla voice** (optional): Meta MMS-TTS Bengali run on-device with sherpa-onnx. One-time download of about 114 MB, then no internet needed. It fixes the letters ড় ঢ় য়, pauses at punctuation, reads numbers aloud (১৯৭১ → এক হাজার নয়শো একাত্তর), and can respell unwritten vowels (আশাকরি → আশাকোরি). English words inside Bangla text are skipped by this voice. The voice is licensed CC BY-NC 4.0 (non-commercial).
+  2. **Offline Bangla voice** (optional): Meta MMS-TTS Bengali run on-device with sherpa-onnx. One-time download of about 114 MB, then no internet needed. It fixes the letters ড় ঢ় য়, reads numbers aloud (১৯৭১ → এক হাজার নয়শো একাত্তর), and can respell unwritten vowels (আশাকরি → আশাকোরি). English words inside Bangla text are skipped by this voice. The voice is licensed CC BY-NC 4.0 (non-commercial).
   3. **Device voice** (default): Android's built-in text-to-speech. Works immediately, offline.
 - If a chosen voice is not set up yet, Kontho falls back to the device voice and tells you.
 - Provides controls for reading speed, plus play, pause/resume, stop, restart, and close.

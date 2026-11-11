@@ -5,7 +5,7 @@ A new look, a welcome screen, and a choice of reading voices.
 ### What's new
 - **Reading voices (Settings → Voice), best first:**
   - **Azure neural voice** (online): the most natural Bangla (Nabanita or Pradeep). Bring your own free Microsoft Azure Speech key; about 500,000 characters per month are free. Kontho shows how much this phone has used.
-  - **Offline Bangla voice** (optional download, about 114 MB): runs on your phone with no internet. It says ড় ঢ় য় correctly, pauses at punctuation, reads numbers aloud, and can respell unwritten vowels (আশাকরি → আশাকোরি).
+  - **Offline Bangla voice** (optional download, about 114 MB): runs on your phone with no internet. It says ড় ঢ় য় correctly, reads numbers aloud, and can respell unwritten vowels (আশাকরি → আশাকোরি).
   - **Device voice** (default): Android's built-in voice, works immediately and offline.
 - If a chosen voice is not set up, or fails while reading (no signal, quota used up), Kontho carries on with the device voice from the same paragraph and tells you once.
 - **New design:** one calm green-and-paper palette in light and dark, rounded cards, a floating button to open a single PDF, a book count, and gentle animations.

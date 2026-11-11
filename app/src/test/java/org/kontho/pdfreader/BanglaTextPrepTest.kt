@@ -61,13 +61,45 @@ class BanglaTextPrepTest {
 
     // ---------------------------------------------------------------- punctuation and pauses
 
-    @Test fun punctuationBecomesPauses() {
+    @Test fun punctuationSplitsTheTextButAddsNoSilence() {
         val chunks = BanglaTextPrep.toChunks("আমি ভালো আছি। তুমি কেমন আছো? ঠিক আছে, ধন্যবাদ", bangla, vowelFix = false)
         assertEquals(4, chunks.size)
-        assertEquals(BanglaTextPrep.PAUSE_SENTENCE_MS, chunks[0].pauseMs)
-        assertEquals(BanglaTextPrep.PAUSE_SENTENCE_MS, chunks[1].pauseMs)
-        assertEquals(BanglaTextPrep.PAUSE_PHRASE_MS, chunks[2].pauseMs)
-        assertTrue(chunks.last().pauseMs >= BanglaTextPrep.PAUSE_PARAGRAPH_MS)
+        assertTrue("no pause expected", chunks.all { it.pauseMs == 0 })
+    }
+
+    // ---------------------------------------------------------------- reported mistakes
+
+    @Test fun countedWordsKeepTheirFinalConsonantBeforeTi() {
+        // The vowel fix used to turn these into একোটি, তিনোটি ...
+        for (word in listOf("একটি", "একটু", "একদিন", "তিনটি", "চারটি", "পাঁচটি", "দশটি", "কোনটি", "ছোটটি")) {
+            assertEquals(word, BanglaTextPrep.harmonizeVowels(word))
+        }
+        // ...but a word that really starts with a bare consonant still gets its vowel
+        assertEquals("ঘোটি", BanglaTextPrep.harmonizeVowels("ঘটি"))
+        assertEquals("আশাকোরি", BanglaTextPrep.harmonizeVowels("আশাকরি"))
+    }
+
+    @Test fun listedWordsAreRespelledAsTheyAreSpoken() {
+        assertEquals("ইছলামি", BanglaTextPrep.respellWords("ইসলামী", vowelFix = true))
+        assertEquals("এক টি", BanglaTextPrep.respellWords("একটি", vowelFix = true))
+        // exceptions apply even when the vowel fix is switched off
+        assertEquals("ইছলামি", BanglaTextPrep.respellWords("ইসলামী", vowelFix = false))
+        assertEquals("এক টি", BanglaTextPrep.respellWords("একটি", vowelFix = false))
+        // with an ending attached, and inside a sentence
+        assertEquals("ইছলামির", BanglaTextPrep.respellWords("ইসলামীর", vowelFix = true))
+        assertEquals("এক টিতে", BanglaTextPrep.respellWords("একটিতে", vowelFix = true))
+        assertEquals("ইছলামি, এক টি।", BanglaTextPrep.respellWords("ইসলামী, একটি।", vowelFix = true))
+    }
+
+    @Test fun otherWordsAreOnlyTouchedByTheVowelFixWhenItIsOn() {
+        assertEquals("কোরি", BanglaTextPrep.respellWords("করি", vowelFix = true))
+        assertEquals("করি", BanglaTextPrep.respellWords("করি", vowelFix = false))
+    }
+
+    @Test fun listedWordsReachTheVoiceRespelled() {
+        val spoken = BanglaTextPrep.toChunks("ইসলামী একটি বই", bangla, vowelFix = true)
+            .joinToString(" ") { it.text }
+        assertEquals("ইছলামি এক টি বই", spoken)
     }
 
     @Test fun emptyAndPunctuationOnlyParagraphsProduceNothing() {
@@ -132,10 +164,10 @@ class BanglaTextPrepTest {
         assertTrue(spoken, spoken.contains("একাত্তর"))
     }
 
-    @Test fun aSentenceEndingInANumberStillGetsASentencePause() {
+    @Test fun aSentenceEndingInANumberStillEndsTheSentence() {
         val chunks = BanglaTextPrep.toChunks("সাল ১৯৭১. আমরা জিতেছি", bangla, vowelFix = false)
         assertEquals(2, chunks.size)
-        assertEquals(BanglaTextPrep.PAUSE_SENTENCE_MS, chunks[0].pauseMs)
+        assertEquals(0, chunks[0].pauseMs)
     }
 
     // ---------------------------------------------------------------- misc
@@ -147,11 +179,11 @@ class BanglaTextPrepTest {
         )
     }
 
-    @Test fun cloudGroupsKeepAllTextAndEndWithAPause() {
+    @Test fun cloudGroupsKeepAllTextAndAddNoSilence() {
         val text = (1..80).joinToString(" ") { "আমি ভালো আছি।" }
         val groups = BanglaTextPrep.toSentenceGroups(text)
         assertTrue(groups.all { it.text.length <= 450 })
         assertEquals(text.replace(" ", ""), groups.joinToString("") { it.text }.replace(" ", ""))
-        assertEquals(BanglaTextPrep.PAUSE_SENTENCE_MS, groups.last().pauseMs)
+        assertTrue(groups.all { it.pauseMs == 0 })
     }
 }
