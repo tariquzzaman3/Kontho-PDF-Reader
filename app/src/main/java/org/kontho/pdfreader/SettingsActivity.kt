@@ -101,13 +101,13 @@ class SettingsActivity : ComponentActivity() {
             else -> (resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
         }
         setTheme(if (dark) android.R.style.Theme_Material_NoActionBar else android.R.style.Theme_Material_Light_NoActionBar)
-        val screenBackground = if (dark) Color.rgb(22, 29, 27) else Color.rgb(248, 250, 249)
-        val foreground = if (dark) Color.WHITE else Color.rgb(27, 48, 42)
-        val muted = if (dark) Color.rgb(187, 201, 195) else Color.rgb(99, 117, 109)
-        val accent = Color.rgb(18, 104, 84)
+        val pal = Ui.palette(this)
+        val screenBackground = pal.background
+        val foreground = pal.text
+        val muted = pal.textMuted
+        val accent = pal.accent
 
-        window.statusBarColor = Color.rgb(112, 119, 116)
-        window.navigationBarColor = window.statusBarColor
+        Ui.applySystemBars(window, pal)
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -181,12 +181,8 @@ class SettingsActivity : ComponentActivity() {
 
         fun cardBackground(selected: Boolean) = GradientDrawable().apply {
             cornerRadius = dp(16).toFloat()
-            setColor(if (selected) {
-                if (dark) Color.rgb(32, 67, 57) else Color.rgb(224, 242, 235)
-            } else {
-                if (dark) Color.rgb(37, 45, 42) else Color.WHITE
-            })
-            setStroke(dp(if (selected) 2 else 1), if (selected) accent else if (dark) Color.rgb(70, 83, 77) else Color.rgb(222, 230, 226))
+            setColor(if (selected) pal.accentSoft else pal.surface)
+            setStroke(dp(if (selected) 2 else 1), if (selected) accent else pal.outline)
         }
 
         fun choiceCard(symbol: String, title: String, selected: Boolean, action: () -> Unit): LinearLayout {
@@ -389,36 +385,34 @@ class SettingsActivity : ComponentActivity() {
             "light" -> false
             else -> (resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
         }
-        window.statusBarColor = Color.rgb(112, 119, 116)
-        window.navigationBarColor = window.statusBarColor
-        WindowCompat.setDecorFitsSystemWindows(window, false)
-        WindowInsetsControllerCompat(window, window.decorView).isAppearanceLightStatusBars = false
+        val pal = Ui.palette(this)
+        Ui.edgeToEdge(window)
+        Ui.applySystemBars(window, pal)
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(24), dp(20), dp(24), dp(20))
-            setBackgroundColor(if (dark) Color.rgb(25, 31, 29) else Color.rgb(248, 250, 249))
+            setPadding(dp(20), dp(16), dp(20), dp(16))
+            setBackgroundColor(pal.background)
         }
         val title = TextView(this).apply {
             text = label("Settings", "সেটিংস")
             textSize = 26f
-            setTextColor(if (dark) Color.WHITE else Color.rgb(18, 76, 66))
-            setPadding(0, 0, 0, 12)
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(pal.text)
+            setPadding(dp(2), 0, 0, dp(8))
         }
         root.addView(title)
         val scroll = android.widget.ScrollView(this)
         val options = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         scroll.addView(options)
-        val foreground = if (dark) Color.rgb(244, 248, 246) else Color.rgb(27, 48, 42)
-        val muted = if (dark) Color.rgb(174, 190, 182) else Color.rgb(101, 119, 111)
-        val cardSurface = if (dark) Color.rgb(35, 44, 40) else Color.WHITE
-        val cardStroke = if (dark) Color.rgb(58, 72, 65) else Color.rgb(225, 233, 229)
-        val accent = Color.rgb(18, 104, 84)
+        val foreground = pal.text
+        val muted = pal.textMuted
+        val accent = pal.accent
 
-        fun cardBackground() = GradientDrawable().apply {
-            shape = GradientDrawable.RECTANGLE
-            cornerRadius = dp(16).toFloat()
-            setColor(cardSurface)
-            setStroke(dp(1), cardStroke)
+        fun cardBackground(): android.graphics.drawable.Drawable =
+            Ui.rippleShape(pal.surface, dp(16).toFloat(), pal.ripple, pal.outline, dp(1))
+
+        fun reveal(card: View) {
+            Ui.revealIn(card, minOf(options.childCount, 12) * 28L, dp(8).toFloat())
         }
 
         fun addSection(sectionTitle: String) {
@@ -427,8 +421,8 @@ class SettingsActivity : ComponentActivity() {
                 textSize = 12f
                 letterSpacing = 0.08f
                 typeface = Typeface.DEFAULT_BOLD
-                setTextColor(if (dark) Color.rgb(142, 198, 177) else accent)
-                setPadding(dp(2), dp(15), 0, dp(8))
+                setTextColor(accent)
+                setPadding(dp(2), dp(18), 0, dp(8))
             }
             options.addView(heading, LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
@@ -476,9 +470,11 @@ class SettingsActivity : ComponentActivity() {
             }
             card.addView(textColumn, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             card.addView(arrow, LinearLayout.LayoutParams(dp(24), ViewGroup.LayoutParams.WRAP_CONTENT))
+            reveal(card)
             options.addView(card, LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
             ).apply { bottomMargin = dp(8) })
+            Ui.pressable(card, 0.985f)
         }
 
         fun addToggleRow(titleText: String, summary: String, checked: Boolean, onChanged: (Boolean) -> Unit) {
@@ -516,9 +512,11 @@ class SettingsActivity : ComponentActivity() {
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
             ).apply { marginStart = dp(8) })
             card.setOnClickListener { toggle.isChecked = !toggle.isChecked }
+            reveal(card)
             options.addView(card, LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
             ).apply { bottomMargin = dp(8) })
+            Ui.pressable(card, 0.985f)
         }
 
         addSection(label("GENERAL", "সাধারণ"))
@@ -628,6 +626,14 @@ class SettingsActivity : ComponentActivity() {
                 }
                 .setNegativeButton(label("Cancel", "বাতিল"), null)
                 .show()
+        }
+
+        addRow(
+            label("Reading voice", "পাঠের কণ্ঠ"),
+            VoiceEngines.title(this, VoiceEngines.selected(this)) + " · " +
+                label("Azure, offline MMS or device voice", "Azure, অফলাইন MMS বা ডিভাইসের কণ্ঠ")
+        ) {
+            startActivity(Intent(this, VoiceSettingsActivity::class.java))
         }
 
         addRow(

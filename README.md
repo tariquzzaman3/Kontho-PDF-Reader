@@ -30,11 +30,13 @@ This link opens the external support page; no personal bank-account number is pu
 
 ### Read aloud
 
-- Uses the Android Text-to-Speech (TTS) engine to speak selectable PDF text or OCR-recognized text.
-- Requests a Bangla voice for Bangla OCR when configured; available voices depend on the TTS engine installed on the device.
-- Provides controls for reading speed and voice pitch, plus play, pause/resume, stop, restart, and close.
-- Lets readers select and test Bangla voices reported by the installed Android TTS engine; saved choices are reused while reading Bangla text. Voice options and naturalness depend on the engine and installed voice data.
-- Provides a shortcut to Android Text-to-speech settings so readers can change engines or install available Bangla voice data. Network-required voices may need internet access.
+- Three reading voices in **Settings → Voice**, listed best first:
+  1. **Azure neural voice** (online, optional): the most natural Bangla (Nabanita or Pradeep). You bring your own free Microsoft Azure Speech key (about 500,000 characters per month are free); Kontho shows how much this phone has used this month.
+  2. **Offline Bangla voice** (optional): Meta MMS-TTS Bengali run on-device with sherpa-onnx. One-time download of about 114 MB, then no internet needed. It fixes the letters ড় ঢ় য়, pauses at punctuation, reads numbers aloud (১৯৭১ → এক হাজার নয়শো একাত্তর), and can respell unwritten vowels (আশাকরি → আশাকোরি). English words inside Bangla text are skipped by this voice. The voice is licensed CC BY-NC 4.0 (non-commercial).
+  3. **Device voice** (default): Android's built-in text-to-speech. Works immediately, offline.
+- If a chosen voice is not set up yet, Kontho falls back to the device voice and tells you.
+- Provides controls for reading speed, plus play, pause/resume, stop, restart, and close.
+- Provides a shortcut to Android Text-to-speech settings so readers can change engines or install available Bangla voice data.
 - Can be selected as a default PDF reader on Android, and can open PDF files shared or opened from other apps. Android requires the user to confirm the default app.
 - Can scan the next OCR page while the current page is being read and continue to the next page automatically when that option is enabled. When continuous OCR reading is active, closing the playback controls or leaving the PDF prompts for confirmation before stopping narration.
 - Displays the page currently being narrated and the reading progress through the book.
@@ -69,7 +71,7 @@ For PDFs that already contain selectable text, use **Read aloud** instead. Text 
 
 Kontho uses the open-source Tesseract4Android OCR engine. The app prioritizes higher-recognition-quality models for Bangla where possible, but OCR is not perfect. Results depend on scan resolution, contrast, page alignment, font size, and page layout. Some pages may require correction or a repeat scan.
 
-Speech is produced by the Android TTS engine, not by a built-in AI voice. In the reader's **Read aloud settings**, use **Choose / test Bangla voice** to preview the Bangla voices listed by the current engine. To install another voice or change engines, open Settings → **Bangla speech voice & engine**. Not every device offers multiple Bangla voices, and an installed voice can still sound synthetic. If a compatible Bangla voice is unavailable, Kontho may use the device's default voice and prompt the reader to check Android TTS settings.
+By default speech comes from the Android TTS engine, which can sound synthetic. For a more natural voice, open Settings → **Voice** and choose the offline Bangla voice or an Azure neural voice. The offline voice is a character-based model: it can still mispronounce some words, so the vowel-fix option is a best-effort heuristic. The device voice can be changed in Settings → **Bangla speech voice & engine**.
 
 ## Privacy and storage
 
@@ -77,7 +79,7 @@ Speech is produced by the Android TTS engine, not by a built-in AI voice. In the
 - Tesseract language models are downloaded from the public Tesseract repositories on GitHub when needed.
 - If automatic update checks are enabled, the app requests public GitHub release information. These requests do not contain PDF files or recognized OCR text.
 - When an update is available, Kontho downloads the published APK directly through Android Download Manager, shows download progress in the system notification, and opens Android’s package installer when finished. Android may ask you to allow Kontho to install apps.
-- Depending on the Android TTS engine and its settings, speech may be processed locally or by the TTS provider.
+- Depending on the Android TTS engine and its settings, speech may be processed locally or by the TTS provider. If you choose the Azure voice, the text being read is sent to Microsoft Azure with your own key; see the privacy policy.
 - OCR text and language models are stored separately in app-private storage. You can clear the OCR text cache from the OCR options.
 
 See the [privacy policy](docs/privacy-policy.md) for more details.

@@ -122,6 +122,10 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private var narrationRunId = 0
     private val queuedOcrPages = ConcurrentHashMap.newKeySet<String>()
     private var lastNarrationUtteranceId: String? = null
+    /** True while the current page is read by an MMS/Azure voice instead of Android's own TTS. */
+    private var neuralActive = false
+    /** The "using the device voice instead" notice is shown once per reading session, not on every page. */
+    private var neuralFallbackNotified = false
     private var lastNarrationMode = "device"
     private var continuousNarrationSession = false
     private var showingLibrary = true
@@ -131,6 +135,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     @Volatile private var readerGeneration = 0
 
     private lateinit var libraryGrid: GridLayout
+    private lateinit var libraryCount: TextView
     private lateinit var librarySwipe: SwipeRefreshLayout
     private lateinit var readerScroll: ScrollView
     private lateinit var horizontalPageScroll: HorizontalScrollView
@@ -206,8 +211,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         }
         setTheme(if (dark) android.R.style.Theme_Material_NoActionBar else android.R.style.Theme_Material_Light_NoActionBar)
         super.onCreate(savedInstanceState)
-        window.statusBarColor = Color.rgb(112, 119, 116)
-        window.navigationBarColor = window.statusBarColor
+        Ui.applySystemBars(window, Ui.palette(this))
         PDFBoxResourceLoader.init(applicationContext)
         tts = TextToSpeech(this, this)
         lastBookFolderUri = preferences.getString(KEY_BOOK_FOLDER, null)
@@ -357,8 +361,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
-        window.statusBarColor = Color.rgb(112, 119, 116)
-        window.navigationBarColor = window.statusBarColor
+        if (showingLibrary) Ui.applySystemBars(window, Ui.palette(this))
         if (showingLibrary) {
             val cachedBooks = books
             showLibrary()
@@ -388,21 +391,16 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_VISIBLE
 
         val prefs = preferences
-        val dark = when (prefs.getString("app_theme", "system")) {
-            "dark" -> true
-            "light" -> false
-            else -> (resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
-        }
+        val palette = Ui.palette(this)
+        val dark = palette.dark
         val appLanguage = prefs.getString("app_language", "en") == "bn"
         setTheme(if (dark) android.R.style.Theme_Material_NoActionBar else android.R.style.Theme_Material_Light_NoActionBar)
         fun label(en: String, bn: String) = if (appLanguage) bn else en
-        window.statusBarColor = Color.rgb(112, 119, 116)
-        window.navigationBarColor = window.statusBarColor
-        WindowInsetsControllerCompat(window, window.decorView).isAppearanceLightStatusBars = false
+        Ui.applySystemBars(window, palette)
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(if (dark) Color.rgb(25, 31, 29) else Color.rgb(248, 250, 249))
+            setBackgroundColor(palette.background)
             setPadding(dp(16), dp(8), dp(16), dp(8))
         }
 
@@ -415,59 +413,45 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             scaleType = ImageView.ScaleType.FIT_CENTER
             contentDescription = "কণ্ঠ · Kontho PDF Reader logo"
         }
-        header.addView(logo, LinearLayout.LayoutParams(dp(44), dp(44)).apply {
-            marginEnd = dp(8)
-        })
+        header.addView(logo, LinearLayout.LayoutParams(dp(40), dp(40)).apply { marginEnd = dp(12) })
 
-        val title = TextView(this).apply {
-            text = "কণ্ঠ · Kontho PDF Reader"
-            textSize = 22f
-            setTextColor(if (dark) Color.rgb(175, 225, 210) else Color.rgb(18, 76, 66))
-            gravity = Gravity.CENTER_VERTICAL
-            typeface = Typeface.DEFAULT_BOLD
+        val titleColumn = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        titleColumn.addView(Ui.text(this, "কণ্ঠ", 24f, palette.accent, bold = true).apply { maxLines = 1 })
+        titleColumn.addView(Ui.text(this, "KONTHO PDF READER", 10f, palette.textMuted).apply {
+            letterSpacing = 0.16f
             maxLines = 1
-            ellipsize = android.text.TextUtils.TruncateAt.END
-        }
-        header.addView(title, LinearLayout.LayoutParams(0, dp(52), 1f))
+        })
+        header.addView(titleColumn, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
 
-        val settingsButton = TextView(this).apply {
-            text = "⚙"
-            textSize = 26f
-            gravity = Gravity.CENTER
-            setTextColor(if (dark) Color.WHITE else Color.rgb(18, 76, 66))
-            contentDescription = label("Settings", "সেটিংস")
-            setPadding(dp(10), 0, dp(2), 0)
-            isClickable = true
-            isFocusable = true
-            setOnClickListener { startActivity(Intent(this@MainActivity, SettingsActivity::class.java)) }
-        }
-        header.addView(settingsButton, LinearLayout.LayoutParams(dp(48), dp(52)))
-        root.addView(header, matchWrap())
+        header.addView(
+            Ui.iconButton(this, palette, R.drawable.ic_tune, label("Settings", "সেটিংস")) {
+                startActivity(Intent(this@MainActivity, SettingsActivity::class.java))
+            },
+            LinearLayout.LayoutParams(dp(44), dp(44))
+        )
+        root.addView(header, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, dp(56)
+        ))
 
         val sortRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        val dividerLine = View(this).apply {
-            setBackgroundColor(if (dark) Color.rgb(76, 91, 84) else Color.rgb(210, 220, 215))
-        }
-        sortRow.addView(dividerLine, LinearLayout.LayoutParams(0, dp(1), 1f))
-        val sortButton = TextView(this).apply {
-            text = label("Sort ▾", "সাজান ▾")
-            textSize = 14f
-            gravity = Gravity.CENTER
-            setTextColor(if (dark) Color.rgb(213, 231, 222) else Color.rgb(32, 79, 66))
-            setPadding(dp(12), dp(7), dp(2), dp(7))
+        libraryCount = Ui.text(this, "", 13f, palette.textMuted)
+        sortRow.addView(libraryCount, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        val sortButton = Ui.text(this, label("Sort ▾", "সাজান ▾"), 13f, palette.accent, bold = true).apply {
+            setPadding(dp(14), dp(7), dp(14), dp(7))
+            background = Ui.rippleShape(palette.accentSoft, dp(16).toFloat(), palette.ripple)
             isClickable = true
             isFocusable = true
             setOnClickListener { showSortMenu(this) }
         }
         sortRow.addView(sortButton, LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT, dp(34)
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
         ))
         root.addView(sortRow, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
-        ).apply { bottomMargin = dp(4) })
+        ).apply { topMargin = dp(4); bottomMargin = dp(8) })
 
         val columns = if (prefs.getString("library_view", "grid") == "list") {
             1
@@ -482,12 +466,14 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         val listScroll = ScrollView(this).apply {
             isFillViewport = true
             clipToPadding = false
+            setPadding(0, 0, 0, dp(88)) // room for the floating button under the last row
             addView(libraryGrid, ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
             ))
         }
         librarySwipe = SwipeRefreshLayout(this).apply {
-            setColorSchemeColors(Color.rgb(18, 104, 84))
+            setColorSchemeColors(palette.accent)
+            setProgressBackgroundColorSchemeColor(palette.surface)
             setOnRefreshListener {
                 isRefreshing = false
                 refreshLibrary()
@@ -496,7 +482,30 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT
             ))
         }
-        root.addView(librarySwipe, LinearLayout.LayoutParams(
+
+        // Floating button: open a single PDF from anywhere on the phone.
+        val openPdfButton = LinearLayout(this).apply {
+            gravity = Gravity.CENTER
+            contentDescription = label("Open a PDF", "PDF খুলুন")
+            background = Ui.rippleShape(palette.accent, dp(28).toFloat(), 0x33FFFFFF)
+            elevation = dp(6).toFloat()
+            isClickable = true
+            isFocusable = true
+            addView(
+                Ui.icon(this@MainActivity, R.drawable.ic_add, palette.onAccent, 26),
+                LinearLayout.LayoutParams(dp(26), dp(26))
+            )
+            setOnClickListener { openPdf.launch(arrayOf("application/pdf")) }
+            Ui.pressable(this, 0.92f)
+        }
+        val libraryHolder = FrameLayout(this)
+        libraryHolder.addView(librarySwipe, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT
+        ))
+        libraryHolder.addView(openPdfButton, FrameLayout.LayoutParams(
+            dp(56), dp(56), Gravity.BOTTOM or Gravity.END
+        ).apply { setMargins(0, 0, dp(4), dp(12)) })
+        root.addView(libraryHolder, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f
         ))
         root.addView(createProgressPanel(dark), LinearLayout.LayoutParams(
@@ -653,16 +662,39 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private fun renderBookGrid() {
         if (!::libraryGrid.isInitialized || !showingLibrary) return
         libraryGrid.removeAllViews()
+        updateLibraryCount()
         if (books.isEmpty()) {
-            val dark = preferences.getString("app_theme", "system") == "dark"
+            val palette = Ui.palette(this)
             val bn = preferences.getString("app_language", "en") == "bn"
-            val empty = TextView(this).apply {
-                text = if (bn) "এখনো কোনো PDF পাওয়া যায়নি। সেটিংস থেকে PDF ফোল্ডার বেছে নিন, অথবা তালিকা রিফ্রেশ করতে নিচে টানুন।"
-                    else "No PDFs found. Choose a PDF folder in Settings, or pull down to refresh."
-                textSize = 15f
-                setTextColor(if (dark) Color.LTGRAY else Color.rgb(90, 103, 98))
-                gravity = Gravity.CENTER
-                setPadding(dp(24), dp(40), dp(24), dp(40))
+            val empty = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER_HORIZONTAL
+                setPadding(dp(24), dp(56), dp(24), dp(40))
+                addView(
+                    Ui.icon(this@MainActivity, R.drawable.ic_book, palette.accent, 56),
+                    LinearLayout.LayoutParams(dp(56), dp(56))
+                )
+                addView(
+                    Ui.text(this@MainActivity, if (bn) "এখনো কোনো বই নেই" else "No books yet", 18f, palette.text, bold = true)
+                        .apply { gravity = Gravity.CENTER },
+                    LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
+                    ).apply { topMargin = dp(16) }
+                )
+                addView(
+                    Ui.text(
+                        this@MainActivity,
+                        if (bn) "আপনার PDF ফোল্ডার বেছে নিন, অথবা নিচের + দিয়ে একটি PDF খুলুন।"
+                        else "Choose your PDF folder, or tap + to open a single PDF.",
+                        14f, palette.textMuted
+                    ).apply { gravity = Gravity.CENTER },
+                    LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
+                    ).apply { topMargin = dp(6); bottomMargin = dp(20) }
+                )
+                addView(Ui.primaryButton(
+                    this@MainActivity, palette, if (bn) "PDF ফোল্ডার বেছে নিন" else "Choose PDF folder"
+                ) { chooseBookFolder.launch(null) })
             }
             libraryGrid.addView(empty, GridLayout.LayoutParams().apply {
                 width = ViewGroup.LayoutParams.MATCH_PARENT
@@ -678,14 +710,22 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         if (!::libraryGrid.isInitialized || !showingLibrary) return
         if (books.size == 1) libraryGrid.removeAllViews()
         addBookCard(book)
+        updateLibraryCount()
+    }
+
+    private fun updateLibraryCount() {
+        if (!::libraryCount.isInitialized) return
+        val bn = preferences.getString("app_language", "en") == "bn"
+        libraryCount.text = when {
+            books.isEmpty() -> ""
+            bn -> "${books.size}টি বই"
+            books.size == 1 -> "1 book"
+            else -> "${books.size} books"
+        }
     }
 
     private fun addBookCard(book: Book) {
-        val darkCard = when (preferences.getString("app_theme", "system")) {
-            "dark" -> true
-            "light" -> false
-            else -> (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
-        }
+        val pal = Ui.palette(this)
         val listMode = preferences.getString("library_view", "grid") == "list"
         val gridColumns = if (listMode) 1 else preferences.getInt("grid_columns", 2).coerceIn(1, 10)
         val cardHorizontalPadding = if (listMode) 8 else when {
@@ -698,17 +738,14 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             tag = book.uri.toString()
             orientation = if (listMode) LinearLayout.HORIZONTAL else LinearLayout.VERTICAL
             setPadding(dp(cardHorizontalPadding), dp(cardVerticalPadding), dp(cardHorizontalPadding), dp(cardVerticalPadding))
-            background = GradientDrawable().apply {
-                setColor(if (darkCard) Color.rgb(39, 47, 44) else Color.WHITE)
-                cornerRadius = dp(10).toFloat()
-                setStroke(dp(1), if (darkCard) Color.rgb(70, 84, 78) else Color.rgb(225, 232, 229))
-            }
+            background = Ui.rippleShape(pal.surface, dp(14).toFloat(), pal.ripple, pal.outline, dp(1))
             elevation = dp(1).toFloat()
             isClickable = true
             isFocusable = true
             setOnClickListener { openBook(book) }
             setOnLongClickListener { showBookActions(book); true }
             contentDescription = "Open ${book.name}. Long press for more actions."
+            Ui.pressable(this, 0.97f)
         }
         val cover: ImageView = if (listMode) {
             ImageView(this)
@@ -731,7 +768,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             }
         }.apply {
             tag = book.uri.toString()
-            setBackgroundColor(Color.rgb(238, 242, 240))
+            setBackgroundColor(pal.surfaceAlt)
+            Ui.roundCorners(this, dp(8).toFloat())
             setImageResource(android.R.drawable.ic_menu_gallery)
             scaleType = ImageView.ScaleType.FIT_CENTER
             adjustViewBounds = false
@@ -748,7 +786,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 gridColumns >= 5 -> 11f
                 else -> 14f
             }
-            setTextColor(if (darkCard) Color.rgb(235, 242, 238) else Color.rgb(28, 43, 39))
+            setTextColor(pal.text)
             typeface = Typeface.DEFAULT_BOLD
             minLines = 2
             maxLines = 2
@@ -792,6 +830,9 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             })
         }
         loadCoverThumbnail(book, cover)
+        // Gentle staggered entrance for the first screenful of cards.
+        val position = libraryGrid.childCount - 1
+        if (position in 0..13) Ui.revealIn(card, position * 35L, dp(10).toFloat())
     }
 
     private fun reorderBookCards(sortedBooks: List<Book>) {
@@ -804,6 +845,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             libraryGrid.addView(card, card.layoutParams as GridLayout.LayoutParams)
             card.findViewWithTag<TextView>("book_title")?.text = book.name.removeSuffixIgnoreCase(".pdf")
         }
+        updateLibraryCount()
     }
 
     private fun loadCoverThumbnail(book: Book, image: ImageView) {
@@ -1287,28 +1329,26 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private fun createProgressPanel(dark: Boolean): LinearLayout {
         progressAnimator?.cancel()
         progressAnimator = null
+        val pal = Ui.palette(this)
         progressPanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(8), dp(6), dp(8), dp(6))
-            background = GradientDrawable().apply {
-                cornerRadius = dp(8).toFloat()
-                setColor(if (dark) Color.rgb(20, 28, 26) else Color.WHITE)
-            }
+            setPadding(dp(14), dp(10), dp(14), dp(10))
+            background = Ui.shape(pal.surface, dp(14).toFloat(), pal.outline, dp(1))
             visibility = View.GONE
         }
         progressLabel = TextView(this).apply {
             textSize = 12f
-            setTextColor(if (dark) Color.rgb(225, 239, 231) else Color.rgb(48, 75, 61))
+            setTextColor(pal.text)
             maxLines = 1
             ellipsize = android.text.TextUtils.TruncateAt.END
         }
         val track = GradientDrawable().apply {
             cornerRadius = dp(5).toFloat()
-            setColor(if (dark) Color.rgb(61, 79, 69) else Color.rgb(220, 231, 224))
+            setColor(pal.accentSoft)
         }
         val fill = GradientDrawable().apply {
             cornerRadius = dp(5).toFloat()
-            setColor(if (dark) Color.rgb(62, 224, 144) else Color.rgb(18, 135, 87))
+            setColor(pal.accent)
         }
         progressBar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
             max = 100
@@ -2955,6 +2995,23 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             showReaderOverlays()
             return
         }
+        // Better voices (MMS offline, Azure online) are used for Bangla text when the person chose
+        // one and it is set up. Anything else falls back to Android's own speech engine below.
+        val chosenEngine = VoiceEngines.selected(this)
+        if (chosenEngine != VoiceEngines.SYSTEM && VoiceEngines.hasBangla(narrationText)) {
+            if (VoiceEngines.isReady(this, chosenEngine)) {
+                startNeuralNarration(narrationText, pageIndex, mode)
+                return
+            }
+            noticeDeviceVoiceFallback(
+                if (chosenEngine == VoiceEngines.MMS) {
+                    "The offline Bangla voice is not downloaded yet, so the device voice is used. Open Settings → Voice."
+                } else {
+                    "No Azure key is saved yet, so the device voice is used. Open Settings → Voice."
+                }
+            )
+        }
+        neuralActive = false
         if (!ttsReady) {
             if (mode == "ocr") continuousNarrationSession = false
             clearBusy()
@@ -3044,7 +3101,107 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         }
     }
 
+    /** Read the current page with the chosen MMS/Azure voice. Mirrors the system-voice path above. */
+    private fun startNeuralNarration(narrationText: String, pageIndex: Int, mode: String) {
+        val segments = splitNarrationText(narrationText)
+        if (segments.isEmpty()) {
+            if (mode == "ocr") continuousNarrationSession = false
+            clearBusy()
+            toast("No readable text was found on this page.")
+            return
+        }
+        tts?.stop()
+        neuralActive = true
+        lastNarrationMode = mode
+        narrationPageIndex = pageIndex
+        updateReadingPosition(pageIndex, pageIndex != currentPage)
+        narrationSegments = segments
+        narrationCurrentSegmentIndex = 0
+        narrationPaused = false
+        isNarrating = true
+        speakNeural(0)
+        if (mode == "ocr") {
+            val uri = currentBook?.uri
+            val language = preferences.getString("ocr_language", "ben") ?: "ben"
+            if (uri != null) prefetchNextOcrPage(pageIndex, uri, language)
+        }
+        clearBusy()
+        showReaderOverlays()
+    }
+
+    private fun speakNeural(startIndex: Int) {
+        val speaker = VoiceRuntime.speaker(this, VoiceEngines.selected(this))
+        if (speaker == null || narrationSegments.isEmpty() || startIndex !in narrationSegments.indices) {
+            isNarrating = false
+            narrationPaused = false
+            showReaderOverlays()
+            return
+        }
+        val rate = preferences.getFloat("narration_rate", 0.85f).coerceIn(0.5f, 1.5f)
+        speaker.speak(narrationSegments, startIndex, rate, object : SegmentSpeaker.Callback {
+            override fun onSegmentStarted(index: Int) {
+                narrationCurrentSegmentIndex = index
+                if (!narrationPaused) isNarrating = true
+                if (::readerPauseButton.isInitialized) {
+                    readerPauseButton.text = if (isNarrating && !narrationPaused) "Ⅱ" else "▶"
+                }
+            }
+
+            override fun onFinished() {
+                handleNarrationFinished()
+            }
+
+            override fun onError(message: String) {
+                // A voice can fail part-way through a page: no signal, the free Azure quota used up,
+                // not enough memory for the offline model. Carry on with the device voice from the
+                // same paragraph instead of going silent.
+                if (ttsReady && tts != null && narrationSegments.isNotEmpty()) {
+                    noticeDeviceVoiceFallback("${message.trimEnd('.', ' ')}. Using the device voice instead.")
+                    neuralActive = false
+                    queueNarrationSegments(narrationCurrentSegmentIndex.coerceIn(0, narrationSegments.lastIndex))
+                    return
+                }
+                stopReaderNarration()
+                toast(message)
+                showReaderOverlays()
+            }
+
+            override fun onInterrupted() {
+                pauseReaderNarration()
+            }
+        })
+    }
+
+    private fun noticeDeviceVoiceFallback(message: String) {
+        if (neuralFallbackNotified) return
+        neuralFallbackNotified = true
+        toast(message)
+    }
+
+    /** The last paragraph of the page has been spoken: move on to the next page or stop. */
+    private fun handleNarrationFinished() {
+        val nextPage = narrationPageIndex + 1
+        val continueToNext = lastNarrationMode == "ocr" &&
+            preferences.getBoolean("ocr_continue_next_page", true) &&
+            nextPage in 0 until pageCount && currentBook != null
+        isNarrating = false
+        narrationPaused = false
+        lastNarrationUtteranceId = null
+        if (::readerPauseButton.isInitialized) readerPauseButton.text = "▶"
+        if (continueToNext) {
+            startOcrReadAloud(nextPage, continueRun = true)
+        } else {
+            continuousNarrationSession = false
+            showReaderOverlays()
+        }
+    }
+
     private fun queueNarrationSegments(startIndex: Int) {
+        if (neuralActive) {
+            speakNeural(startIndex)
+            return
+        }
+        VoiceRuntime.stopAll()
         val speech = tts ?: return
         if (narrationSegments.isEmpty() || startIndex !in narrationSegments.indices) {
             isNarrating = false
@@ -3083,6 +3240,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         isNarrating = false
         // Android TTS has no universal pause API; resume repeats the current paragraph.
         tts?.stop()
+        VoiceRuntime.stopAll()
         showReaderOverlays()
     }
 
@@ -3105,6 +3263,9 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
     private fun stopReaderNarration() {
         tts?.stop()
+        VoiceRuntime.stopAll()
+        neuralActive = false
+        neuralFallbackNotified = false
         isNarrating = false
         narrationPaused = false
         continuousNarrationSession = false
@@ -3155,20 +3316,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                     if (utteranceId != null && utteranceId == lastNarrationUtteranceId) {
                         mainHandler.post {
                             if (utteranceId != lastNarrationUtteranceId) return@post
-                            val nextPage = narrationPageIndex + 1
-                            val continueToNext = lastNarrationMode == "ocr" &&
-                                preferences.getBoolean("ocr_continue_next_page", true) &&
-                                nextPage in 0 until pageCount && currentBook != null
-                            isNarrating = false
-                            narrationPaused = false
-                            lastNarrationUtteranceId = null
-                            if (::readerPauseButton.isInitialized) readerPauseButton.text = "▶"
-                            if (continueToNext) {
-                                startOcrReadAloud(nextPage, continueRun = true)
-                            } else {
-                                continuousNarrationSession = false
-                                showReaderOverlays()
-                            }
+                            handleNarrationFinished()
                         }
                     }
                 }
@@ -3532,6 +3680,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         tts?.stop()
         tts?.shutdown()
+        if (isFinishing) VoiceRuntime.releaseAll() else VoiceRuntime.stopAll()
         releaseReaderBitmaps()
         worker.execute { closeCurrentRenderer() }
         worker.shutdown()
