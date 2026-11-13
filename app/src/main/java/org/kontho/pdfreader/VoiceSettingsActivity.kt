@@ -44,6 +44,10 @@ class VoiceSettingsActivity : ComponentActivity() {
     private var testingEngine: String? = null
     private var mmsProgressBar: ProgressBar? = null
     private var mmsProgressText: TextView? = null
+    private lateinit var corrWord: EditText
+    private lateinit var corrSpoken: EditText
+    private lateinit var corrList: LinearLayout
+    private var corrHearing = false
 
     private val installerListener: (MmsInstaller.State) -> Unit = { state ->
         val bar = mmsProgressBar
@@ -126,6 +130,8 @@ class VoiceSettingsActivity : ComponentActivity() {
                 "Android-এর নিজস্ব কণ্ঠ। এখনই চলে, ইন্টারনেট লাগে না।")
         )
 
+        addCorrectionsCard()
+
         val scroll = ScrollView(this).apply {
             isFillViewport = true
             clipToPadding = false
@@ -158,10 +164,12 @@ class VoiceSettingsActivity : ComponentActivity() {
 
     override fun onStop() {
         MmsInstaller.removeListener(installerListener)
-        if (testingEngine != null) {
+        if (testingEngine != null || corrHearing) {
             VoiceRuntime.stopAll()
             testingEngine = null
+            corrHearing = false
         }
+        PronunciationCorrections.install(this)
         super.onStop()
     }
 
@@ -478,6 +486,167 @@ class VoiceSettingsActivity : ComponentActivity() {
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
             ).apply { topMargin = dp(10) }
         )
+    }
+
+
+    // ---------------------------------------------------------------- pronunciation corrections
+
+    private fun addCorrectionsCard() {
+        val outer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(14), dp(16), dp(14))
+            background = Ui.shape(palette.surface, dp(18).toFloat())
+        }
+        outer.addView(Ui.text(this, t("Pronunciation corrections", "উচ্চারণ সংশোধন"), 17f, palette.text, bold = true))
+        outer.addView(
+            Ui.text(
+                this,
+                t("Type a word as the book writes it, then spell how it should sound. Press Hear it to test, Save to keep it. Works with the offline and Azure voices.",
+                    "বইয়ে শব্দটি যেভাবে লেখা তা লিখুন, তারপর কেমন শোনাবে তা বানান করে লিখুন। শুনতে 'শুনুন', রাখতে 'সংরক্ষণ' চাপুন। অফলাইন ও Azure কণ্ঠে কাজ করে।"),
+                13f, palette.textMuted
+            ),
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(4); bottomMargin = dp(12) }
+        )
+        corrWord = field(t("Word as written (e.g. একটি)", "যেভাবে লেখা (যেমন একটি)"), "", false)
+        corrSpoken = field(t("How it should sound (e.g. এক টি)", "যেভাবে শোনাবে (যেমন এক টি)"), "", false)
+        outer.addView(corrWord, fieldParams())
+        outer.addView(corrSpoken, fieldParams())
+
+        val buttons = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        buttons.addView(
+            Ui.secondaryButton(this, palette, t("Hear it", "শুনুন")) { hearCorrection() },
+            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(8) }
+        )
+        buttons.addView(
+            Ui.primaryButton(this, palette, t("Save", "সংরক্ষণ")) { saveCorrection() },
+            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        )
+        outer.addView(buttons, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply { bottomMargin = dp(12) })
+
+        corrList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        outer.addView(corrList, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ))
+        outer.addView(
+            Ui.secondaryButton(this, palette, t("Share my list", "আমার তালিকা পাঠান")) { shareCorrections() },
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(8) }
+        )
+        column.addView(outer, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply { bottomMargin = dp(12) })
+        refreshCorrections()
+    }
+
+    private fun refreshCorrections() {
+        corrList.removeAllViews()
+        val entries = PronunciationCorrections.load(this)
+        if (entries.isEmpty()) {
+            corrList.addView(note(t("No corrections saved yet.", "এখনও কোনো সংশোধন সংরক্ষিত নেই।")))
+            return
+        }
+        for ((word, spoken) in entries) {
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(0, dp(6), 0, dp(6))
+            }
+            val label = Ui.text(this, "$word  →  $spoken", 14f, palette.text).apply {
+                isClickable = true
+                setOnClickListener {
+                    corrWord.setText(word)
+                    corrSpoken.setText(spoken)
+                }
+            }
+            row.addView(label, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            row.addView(Ui.text(this, "▶", 16f, palette.accent).apply {
+                setPadding(dp(12), dp(6), dp(12), dp(6))
+                setOnClickListener { hearWord(word, mapOf(word to spoken)) }
+            })
+            row.addView(Ui.text(this, "✕", 16f, palette.textMuted).apply {
+                setPadding(dp(12), dp(6), dp(4), dp(6))
+                setOnClickListener {
+                    PronunciationCorrections.remove(this@VoiceSettingsActivity, word)
+                    refreshCorrections()
+                }
+            })
+            corrList.addView(row)
+        }
+    }
+
+    private fun saveCorrection() {
+        when (PronunciationCorrections.add(this, corrWord.text.toString(), corrSpoken.text.toString())) {
+            PronunciationCorrections.Result.SAVED -> {
+                corrWord.setText("")
+                corrSpoken.setText("")
+                refreshCorrections()
+                toast(t("Saved.", "সংরক্ষিত হয়েছে।"))
+            }
+            PronunciationCorrections.Result.BAD_WORD ->
+                toast(t("Write one Bangla word in the first box.", "প্রথম ঘরে একটি বাংলা শব্দ লিখুন।"))
+            PronunciationCorrections.Result.BAD_SPOKEN ->
+                toast(t("Write a different spelling in the second box.", "দ্বিতীয় ঘরে অন্যরকম বানান লিখুন।"))
+            PronunciationCorrections.Result.FULL ->
+                toast(t("The list is full (500 words).", "তালিকা পূর্ণ (৫০০ শব্দ)।"))
+        }
+    }
+
+    private fun hearCorrection() {
+        val word = CorrectionList.cleanWord(corrWord.text.toString())
+        val pending = PronunciationCorrections.withPending(this, corrWord.text.toString(), corrSpoken.text.toString())
+        if (pending == null) {
+            toast(t("Fill both boxes first.", "আগে দুটি ঘরই পূরণ করুন।"))
+            return
+        }
+        hearWord(word, pending)
+    }
+
+    /** Speaks the word through the chosen voice with [table] applied, just like real reading. */
+    private fun hearWord(word: String, table: Map<String, String>) {
+        val engine = VoiceEngines.selected(this)
+        if (engine == VoiceEngines.SYSTEM) {
+            toast(t("Choose the offline or Azure voice above to test corrections.",
+                "সংশোধন পরীক্ষা করতে উপরে অফলাইন বা Azure কণ্ঠ বেছে নিন।"))
+            return
+        }
+        VoiceRuntime.stopAll()
+        testingEngine = null
+        val speaker = VoiceRuntime.speaker(this, engine) ?: return
+        // speaker() reloads the saved list, so the pending list goes in afterwards.
+        BanglaTextPrep.userCorrections = LinkedHashMap(table)
+        val rate = getSharedPreferences(Ui.PREFS, MODE_PRIVATE).getFloat("narration_rate", 0.85f).coerceIn(0.5f, 1.5f)
+        corrHearing = true
+        val done = {
+            corrHearing = false
+            PronunciationCorrections.install(this)
+        }
+        speaker.speak(listOf("$word, $word।"), 0, rate, object : SegmentSpeaker.Callback {
+            override fun onSegmentStarted(index: Int) {}
+            override fun onFinished() = done()
+            override fun onError(message: String) {
+                done()
+                toast(message)
+            }
+            override fun onInterrupted() = done()
+        })
+    }
+
+    private fun shareCorrections() {
+        val entries = PronunciationCorrections.load(this)
+        if (entries.isEmpty()) {
+            toast(t("Nothing to share yet.", "পাঠানোর মতো কিছু নেই।"))
+            return
+        }
+        val send = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, CorrectionList.shareText(entries))
+        }
+        startActivity(Intent.createChooser(send, t("Share my list", "আমার তালিকা পাঠান")))
     }
 
     // ---------------------------------------------------------------- test voice

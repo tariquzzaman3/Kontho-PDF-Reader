@@ -1,5 +1,6 @@
 package org.kontho.pdfreader
 
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -185,5 +186,50 @@ class BanglaTextPrepTest {
         assertTrue(groups.all { it.text.length <= 450 })
         assertEquals(text.replace(" ", ""), groups.joinToString("") { it.text }.replace(" ", ""))
         assertTrue(groups.all { it.pauseMs == 0 })
+    }
+
+    // ---------------------------------------------------------------- user corrections
+
+    @After fun resetUserCorrections() {
+        BanglaTextPrep.userCorrections = emptyMap()
+    }
+
+    @Test fun userCorrectionsBeatTheBuiltInList() {
+        BanglaTextPrep.userCorrections = mapOf("একটি" to "একটি্")
+        assertEquals("একটি্", BanglaTextPrep.respellWords("একটি", vowelFix = true))
+        BanglaTextPrep.userCorrections = mapOf("করি" to "কর্ই")
+        assertEquals("কর্ই", BanglaTextPrep.respellWords("করি", vowelFix = true))
+    }
+
+    @Test fun userCorrectionsHandleEndingsAndBothNuktaSpellings() {
+        BanglaTextPrep.userCorrections = mapOf(CorrectionList.cleanWord("বড়") to "বোরো")
+        assertEquals("বোরোদের", BanglaTextPrep.respellWords("বড়দের", vowelFix = false))
+        // the same word typed with a separate nukta still matches
+        assertEquals("বোরো", BanglaTextPrep.respellWords("বড়", vowelFix = false))
+    }
+
+    @Test fun azureGetsUserCorrectionsButNoBuiltInOnes() {
+        BanglaTextPrep.userCorrections = mapOf("আশাকরি" to "আশাকোরি")
+        val spoken = BanglaTextPrep.toSentenceGroups("আশাকরি একটি বই।").joinToString(" ") { it.text }
+        assertEquals("আশাকোরি একটি বই।", spoken)
+    }
+
+    @Test fun correctionValidation() {
+        assertEquals(CorrectionList.Check.OK, CorrectionList.check("একটি", "এক টি"))
+        assertEquals(CorrectionList.Check.BAD_WORD, CorrectionList.check("", "এক"))
+        assertEquals(CorrectionList.Check.BAD_WORD, CorrectionList.check("a b", "এক"))
+        assertEquals(CorrectionList.Check.BAD_WORD, CorrectionList.check("এক টি", "এক"))
+        assertEquals(CorrectionList.Check.BAD_SPOKEN, CorrectionList.check("একটি", ""))
+        assertEquals(CorrectionList.Check.BAD_SPOKEN, CorrectionList.check("একটি", "একটি"))
+        assertEquals("এক টি", CorrectionList.cleanSpoken("  এক \t\n  টি "))
+    }
+
+    @Test fun correctionListRoundTripsAndSharesAsText() {
+        val entries = linkedMapOf("একটি" to "এক টি", "ইসলামী" to "ইছলামি")
+        assertEquals(entries, CorrectionList.parse(CorrectionList.serialize(entries)))
+        assertTrue(CorrectionList.parse("junk\n\tnothing\nশব্দ\tশব্দ\n").isEmpty())
+        val share = CorrectionList.shareText(entries)
+        assertTrue(share, share.contains("একটি > এক টি"))
+        assertTrue(share, share.contains("ইসলামী > ইছলামি"))
     }
 }

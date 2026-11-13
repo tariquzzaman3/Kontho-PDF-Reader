@@ -22,3 +22,7 @@ A new look, a welcome screen, and a choice of reading voices.
 - OCR for scanned Bangla pages, with page-by-page pre-scanning and continuous reading.
 - Browse PDF folders with progressive scanning, grid/list layouts, and sorting.
 - Manage OCR cache, reading controls, sharing, printing, text selection, and PDF copies.
+
+## Pronunciation corrections (test feature)
+
+Voice settings now has a **Pronunciation corrections** card. Type a word as the book writes it, spell how it should sound, press **Hear it** to test it with your chosen voice, and **Save** to keep it. Saved corrections apply to the offline and Azure voices while reading, and win over the built-in list. **Share my list** sends everything as plain text so it can be added to the built-in list in a later release.

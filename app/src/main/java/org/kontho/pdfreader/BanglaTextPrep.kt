@@ -147,16 +147,39 @@ object BanglaTextPrep {
     /** Endings that may be attached to an exception word (ইসলামীর, একটিতে). */
     private val exceptionSuffixes = listOf("দের", "ের", "কে", "রা", "তে", "র", "ে")
 
-    /** The spoken form for a word in the exception list, or null if it is not listed. */
-    fun spokenForm(word: String): String? {
-        pronunciationExceptions[word]?.let { return it }
+    /**
+     * Corrections written by the person in Voice settings (spelling → how it should sound).
+     * They are checked before the built-in list, so they can also override it. Keys are stored
+     * with the nukta letters in their single-character form (see [CorrectionList.cleanWord]).
+     */
+    @Volatile
+    var userCorrections: Map<String, String> = emptyMap()
+
+    private fun lookup(table: Map<String, String>, word: String): String? {
+        if (table.isEmpty()) return null
+        val key = fixNukta(word, emptySet())
+        table[key]?.let { return it }
         for (suffix in exceptionSuffixes) {
-            if (word.length > suffix.length && word.endsWith(suffix)) {
-                val stem = word.substring(0, word.length - suffix.length)
-                pronunciationExceptions[stem]?.let { return it + suffix }
+            if (key.length > suffix.length && key.endsWith(suffix)) {
+                val stem = key.substring(0, key.length - suffix.length)
+                table[stem]?.let { return it + suffix }
             }
         }
         return null
+    }
+
+    /** The spoken form for a word the person or the built-in list has corrected, or null. */
+    fun spokenForm(word: String): String? =
+        lookup(userCorrections, word) ?: lookup(pronunciationExceptions, word)
+
+    /**
+     * Applies only the person's own corrections, leaving every other word untouched. This is what
+     * the Azure voice gets: it has its own pronunciation, but a correction should still work.
+     */
+    fun applyUserCorrections(text: String): String {
+        val table = userCorrections
+        if (table.isEmpty()) return text
+        return Regex("[\\u0980-\\u09FF]+").replace(text) { match -> lookup(table, match.value) ?: match.value }
     }
 
     /**
@@ -339,7 +362,7 @@ object BanglaTextPrep {
      * grouped into pieces of at most [maxChunkChars].
      */
     fun toSentenceGroups(paragraph: String, maxChunkChars: Int = 450): List<SpeechChunk> {
-        val text = paragraph.replace(Regex("\\s+"), " ").trim()
+        val text = applyUserCorrections(paragraph).replace(Regex("\\s+"), " ").trim()
         if (text.isEmpty()) return emptyList()
         val groups = ArrayList<String>()
         val current = StringBuilder()

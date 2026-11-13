@@ -83,6 +83,8 @@ object VoiceRuntime {
     @Synchronized
     fun speaker(context: Context, engine: String): SegmentSpeaker? {
         val app = context.applicationContext
+        // Every reading starts here, so the person's saved corrections are always up to date.
+        PronunciationCorrections.install(app)
         return when (engine) {
             VoiceEngines.MMS -> mms ?: MmsSpeaker(app).also { mms = it }
             VoiceEngines.AZURE -> azure ?: AzureSpeaker(app).also { azure = it }
