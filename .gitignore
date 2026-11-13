@@ -14,3 +14,6 @@ captures/
 # Never commit Android upload keystores or secrets
 *.jks
 *.keystore
+
+# sherpa-onnx AAR is downloaded by Gradle (fetchSherpaAar)
+app/libs/
