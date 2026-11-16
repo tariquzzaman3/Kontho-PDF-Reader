@@ -67,7 +67,7 @@ dependencies {
 
     // PdfBox-Android 2.0.27.0 brings Bouncy Castle 1.72 transitively.
     // Keep all three modules on the compatible security-fixed release.
-    implementation("org.bouncycastle:bcprov-jdk15to18:1.86")
+    implementation("org.bouncycastle:bcprov-jdk15to18:1.87")
     implementation("org.bouncycastle:bcpkix-jdk15to18:1.86")
     implementation("org.bouncycastle:bcutil-jdk15to18:1.86")
 }
