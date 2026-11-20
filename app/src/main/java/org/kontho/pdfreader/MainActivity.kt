@@ -2432,7 +2432,9 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                     if (generation != readerGeneration || currentBook?.uri != book.uri || showingLibrary) return@post
                     clearBusy()
                     if (extracted.isBlank()) {
-                        toast("This page has no selectable text. For scanned pages, run Accurate OCR read-aloud first.")
+                        // A scanned page: read it with OCR so its text can be copied too.
+                        toast("No selectable text on this page. Scanning it with OCR…")
+                        scanPageForSelection(pageIndex)
                     } else {
                         pageTextCache[pageIndex] = extracted
                         if (currentPage == pageIndex) pageText = extracted
@@ -2450,7 +2452,51 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         }
     }
 
-    private fun displayPageTextSelectionDialog(pageIndex: Int, extracted: String) {
+    /** OCR text for one page, from the memory or disk cache when it is there. Runs off the main thread. */
+    private fun ocrPageText(uri: Uri, pageIndex: Int, language: String): String {
+        val cacheKey = ocrCacheKey(uri, pageIndex, language)
+        ocrTextCache[cacheKey]?.takeIf { it.isNotBlank() }?.let { return it }
+        val cacheFile = ocrCacheFile(uri, pageIndex, language)
+        val saved = if (cacheFile.isFile) cacheFile.readText(Charsets.UTF_8) else null
+        val text = saved?.takeIf { it.isNotBlank() } ?: recognizePdfPage(uri, pageIndex, language)
+        if (text.isNotBlank()) {
+            cacheFile.parentFile?.mkdirs()
+            cacheFile.writeText(text, Charsets.UTF_8)
+            cacheFile.setLastModified(System.currentTimeMillis())
+            enforceOcrCacheLimit(cacheFile)
+            ocrTextCache[cacheKey] = text
+        }
+        return text
+    }
+
+    /** Scans a page with OCR and opens the select-and-copy dialog with what it found. */
+    private fun scanPageForSelection(pageIndex: Int) {
+        val book = currentBook ?: return
+        if (pageIndex !in 0 until pageCount) return
+        val generation = readerGeneration
+        val language = preferences.getString("ocr_language", "ben") ?: "ben"
+        setBusy("Scanning OCR page ${pageIndex + 1}…")
+        worker.execute {
+            try {
+                val text = ocrPageText(book.uri, pageIndex, language).trim()
+                mainHandler.post {
+                    if (generation != readerGeneration || currentBook?.uri != book.uri || showingLibrary) return@post
+                    clearBusy()
+                    if (text.isBlank()) toast("OCR could not find any text on this page.")
+                    else displayPageTextSelectionDialog(pageIndex, text, fromOcr = true)
+                }
+            } catch (error: Exception) {
+                mainHandler.post {
+                    if (generation == readerGeneration && currentBook?.uri == book.uri) {
+                        clearBusy()
+                        toast("OCR failed: ${error.localizedMessage ?: "check your connection and OCR language model"}")
+                    }
+                }
+            }
+        }
+    }
+
+    private fun displayPageTextSelectionDialog(pageIndex: Int, extracted: String, fromOcr: Boolean = false) {
         val dark = preferences.getString("app_theme", "system") == "dark"
         val textView = TextView(this).apply {
             text = extracted
@@ -2477,15 +2523,20 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             text = "Define in browser"
             isAllCaps = false
         }
+        val ocrButton = Button(this).apply {
+            text = "Scan page with OCR (scanned or garbled text)"
+            isAllCaps = false
+        }
         val selectionContent = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             addView(scroll, LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(360)
             ))
             addView(defineButton, matchWrap())
+            if (!fromOcr) addView(ocrButton, matchWrap())
         }
         val dialog = AlertDialog.Builder(this)
-            .setTitle("Select text · Page ${pageIndex + 1}")
+            .setTitle(if (fromOcr) "Scanned text (OCR) · Page ${pageIndex + 1}" else "Select text · Page ${pageIndex + 1}")
             .setView(selectionContent)
             .setNegativeButton("Back", null)
             .setNeutralButton("Copy", null)
@@ -2494,6 +2545,10 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         dialog.setOnShowListener {
             dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener {
                 dialog.dismiss()
+            }
+            ocrButton.setOnClickListener {
+                dialog.dismiss()
+                scanPageForSelection(pageIndex)
             }
             defineButton.setOnClickListener {
                 val selected = selectedText().take(500)

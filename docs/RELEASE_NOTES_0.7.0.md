@@ -30,3 +30,7 @@ Voice settings now has a **Pronunciation corrections** card. Type a word as the 
 ## Even pauses
 
 The silence the voice leaves at the start and end of each spoken piece is now trimmed, and a fixed pause is added instead: about 0.3 s after a full stop, 0.12 s after a comma. The end of a paragraph uses the same pause as a full stop, so no gap is longer than another. This applies to the offline and Azure voices. The built-in pronunciation list also grew with the corrections from testing.
+
+## Copy text from scanned pages
+
+Long-pressing a page now works on scanned PDFs too: when a page has no selectable text, Kontho reads it with OCR (Bangla or English, as set in OCR settings) and opens the usual select-and-copy dialog. The dialog also has a **Scan page with OCR** button for pages whose built-in text is garbled. The duplicate "Bangla speech voice & engine" row was removed from Settings; the Reading voice row covers it.
