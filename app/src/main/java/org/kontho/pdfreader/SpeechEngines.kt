@@ -201,7 +201,7 @@ abstract class PipelinedSpeaker(context: Context) : SegmentSpeaker {
                 }
                 for ((chunkIndex, chunk) in chunks.withIndex()) {
                     if (run != currentRun.get()) return
-                    val pcm = synthesize(chunk.text, rate)
+                    val pcm = AudioTrim.trim(synthesize(chunk.text, rate), sampleRate)
                     val item = Item(
                         segment = index,
                         firstOfSegment = chunkIndex == 0,

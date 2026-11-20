@@ -13,12 +13,12 @@ object BanglaTextPrep {
     private const val HASANTA = '্'
     private const val O_KAR = 'ো'
 
-    // Silence added at punctuation. All zero on purpose: the reader waited too long at every
-    // comma and full stop. Text is still split at punctuation, so each piece starts cleanly;
-    // raise these (e.g. 120 / 200 / 250) to bring a small pause back.
-    const val PAUSE_PHRASE_MS = 0
-    const val PAUSE_SENTENCE_MS = 0
-    const val PAUSE_PARAGRAPH_MS = 0
+    // Silence added at punctuation. The voice's own leading and trailing silence is trimmed from
+    // every piece (see AudioTrim), so these are the only pauses and they are the same every time.
+    // The end of a paragraph is deliberately no longer than a full stop.
+    const val PAUSE_PHRASE_MS = 120
+    const val PAUSE_SENTENCE_MS = 280
+    const val PAUSE_PARAGRAPH_MS = PAUSE_SENTENCE_MS
 
     /** Letter, its decomposed (base + nukta) spelling, and a fallback if the model knows neither. */
     private class NuktaLetter(val single: Char, val pair: String, val fallback: String)
@@ -140,8 +140,31 @@ object BanglaTextPrep {
      * Add a word here when the reader says it wrongly.
      */
     private val pronunciationExceptions = mapOf(
-        "ইসলামী" to "ইছলামি",
-        "একটি" to "এক টি"
+        "ইসলামী" to "ইছ্লামী",
+        "ইউসুফ" to "ইউছুফ",
+        "মোঃ" to "মুহাম্মাদ",
+        "মাসুদ" to "মাছুদ",
+        "পাঠকবর্গ" to "পাঠোক বর্গ",
+        "করে" to "কোরে",
+        "যথাযথ" to "যথাযথো",
+        "লেখক" to "লেখোক",
+        "ব্যক্তি" to "বেক্তি",
+        "আন্দলন" to "আন্দোলোন্",
+        "হালকা" to "হাল্ কা",
+        "যৌথ" to "যৌথো",
+        "নাতনি" to "নাত্ নি",
+        "একটি" to "এক টি",
+        // single digits, as the voice says them best
+        "১" to "এ্যাক",
+        "২" to "দুই",
+        "৩" to "তিন",
+        "৪" to "চার",
+        "৫" to "পাঁচ",
+        "৬" to "ছয়",
+        "৭" to "সাত",
+        "৮" to "আট্",
+        "৯" to "নয়",
+        "০" to "শূন্নো"
     )
 
     /** Endings that may be attached to an exception word (ইসলামীর, একটিতে). */
@@ -188,7 +211,13 @@ object BanglaTextPrep {
      */
     fun respellWords(text: String, vowelFix: Boolean): String =
         Regex("[\\u0980-\\u09FF]+").replace(text) { match ->
-            spokenForm(match.value) ?: if (vowelFix) harmonizeWord(match.value) else match.value
+            val word = match.value
+            // A digit inside a bigger number (১.৫, ১,২৩৪, 12৫) is left for the number reader.
+            val inNumber = word.all { isDigitSymbol(it) } && (
+                (match.range.first > 0 && isNumberEdge(text[match.range.first - 1])) ||
+                    (match.range.last + 1 < text.length && isNumberEdge(text[match.range.last + 1]))
+                )
+            (if (inNumber) null else spokenForm(word)) ?: if (vowelFix && !word.all { isDigitSymbol(it) }) harmonizeWord(word) else word
         }
 
     // ------------------------------------------------------------------ numbers
@@ -212,6 +241,8 @@ object BanglaTextPrep {
     private val hundreds = arrayOf(
         "", "একশো", "দুইশো", "তিনশো", "চারশো", "পাঁচশো", "ছয়শো", "সাতশো", "আটশো", "নয়শো"
     )
+
+    private fun isNumberEdge(c: Char): Boolean = isDigitSymbol(c) || c == '.' || c == ','
 
     private fun isDigitSymbol(c: Char): Boolean = c in '0'..'9' || c in '০'..'৯'
 

@@ -26,3 +26,7 @@ A new look, a welcome screen, and a choice of reading voices.
 ## Pronunciation corrections (test feature)
 
 Voice settings now has a **Pronunciation corrections** card. Type a word as the book writes it, spell how it should sound, press **Hear it** to test it with your chosen voice, and **Save** to keep it. Saved corrections apply to the offline and Azure voices while reading, and win over the built-in list. **Share my list** sends everything as plain text so it can be added to the built-in list in a later release.
+
+## Even pauses
+
+The silence the voice leaves at the start and end of each spoken piece is now trimmed, and a fixed pause is added instead: about 0.3 s after a full stop, 0.12 s after a comma. The end of a paragraph uses the same pause as a full stop, so no gap is longer than another. This applies to the offline and Azure voices. The built-in pronunciation list also grew with the corrections from testing.
