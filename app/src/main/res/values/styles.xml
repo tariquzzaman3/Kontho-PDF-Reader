@@ -7,4 +7,11 @@
         <item name="android:navigationBarColor">#707774</item>
         <item name="android:windowLightStatusBar">false</item>
     </style>
+
+    <!-- Plain window colour shown before the splash screen draws, so there is no white flash. -->
+    <style name="Theme.Kontho.Splash" parent="@android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/kontho_splash_bg</item>
+        <item name="android:statusBarColor">@color/kontho_splash_bg</item>
+        <item name="android:navigationBarColor">@color/kontho_splash_bg</item>
+    </style>
 </resources>

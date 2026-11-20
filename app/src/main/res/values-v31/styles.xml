@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Android 12+ system splash: same colour as our own splash so the hand-over is seamless. -->
+    <style name="Theme.Kontho.Splash" parent="@android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/kontho_splash_bg</item>
+        <item name="android:statusBarColor">@color/kontho_splash_bg</item>
+        <item name="android:navigationBarColor">@color/kontho_splash_bg</item>
+        <item name="android:windowSplashScreenBackground">@color/kontho_splash_bg</item>
+    </style>
+</resources>
