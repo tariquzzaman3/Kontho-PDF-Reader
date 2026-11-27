@@ -2276,10 +2276,29 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
     private fun showOcrSettings() {
         val language = preferences.getString("app_language", "en") == "bn"
-        val languages = arrayOf("ben", "eng", "ben+eng")
-        val labels = if (language) arrayOf("বাংলা", "English", "বাংলা + English")
-            else arrayOf("Bengali", "English", "Bengali + English")
-        val current = preferences.getString("ocr_language", "ben") ?: "ben"
+        val languages = arrayOf("ben+eng+ara", "ben", "eng", "ara", "ben+eng", "ben+ara", "eng+ara")
+        val labels = if (language) {
+            arrayOf(
+                "বাংলা + English + আরবি (ডিফল্ট)",
+                "শুধু বাংলা",
+                "শুধু English",
+                "শুধু আরবি",
+                "বাংলা + English",
+                "বাংলা + আরবি",
+                "English + আরবি"
+            )
+        } else {
+            arrayOf(
+                "Bengali + English + Arabic (default)",
+                "Bengali only",
+                "English only",
+                "Arabic only",
+                "Bengali + English",
+                "Bengali + Arabic",
+                "English + Arabic"
+            )
+        }
+        val current = preferences.getString("ocr_language", "ben+eng+ara") ?: "ben+eng+ara"
         val selected = languages.indexOf(current).coerceAtLeast(0)
         AlertDialog.Builder(this)
             .setTitle(if (language) "OCR ভাষা" else "OCR language")
@@ -2666,7 +2685,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         updateReadingPosition(requestedPage, false)
         val generation = readerGeneration
         val uri = currentBook?.uri ?: return
-        val language = preferences.getString("ocr_language", "ben") ?: "ben"
+        val language = preferences.getString("ocr_language", "ben+eng+ara") ?: "ben+eng+ara"
         val cacheKey = ocrCacheKey(uri, requestedPage, language)
         val inMemory = ocrTextCache[cacheKey]
         if (inMemory != null) {
@@ -2777,8 +2796,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     }
 
     /**
-     * Bengali/English OCR models download once on first OCR use. The page scan
-     * itself runs locally with Tesseract and is cached for subsequent reading.
+     * Bengali, English and Arabic OCR models download once on first OCR use.
+     * The page scan itself runs locally with Tesseract and is cached for later reading.
      */
     private fun recognizePdfPage(
         uri: Uri,
@@ -2844,30 +2863,36 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         text.count { it.isLetterOrDigit() }
 
     private fun ensureOcrModels(language: String): File {
-        val languages = when (language) {
-            "eng" -> listOf("eng")
-            "ben+eng" -> listOf("ben", "eng")
-            else -> listOf("ben")
+        val requestedLanguages = language.split('+')
+        val languages = requestedLanguages.distinct()
+        val supportedLanguages = setOf("ben", "eng", "ara")
+        if (languages.isEmpty() || languages.size != requestedLanguages.size ||
+            languages.any { it !in supportedLanguages }
+        ) {
+            throw IOException("The selected OCR language combination is not supported.")
         }
-        val preferBengaliAccuracy = languages.contains("ben")
-        val repository = if (preferBengaliAccuracy) "tessdata_best" else "tessdata_fast"
-        val dataRoot = File(
-            filesDir,
-            if (preferBengaliAccuracy) "tesseract_bengali_best" else "tesseract"
-        )
+
+        // Keep the higher-accuracy models for Bangla and Arabic. English-only
+        // recognition keeps the smaller, faster model.
+        val preferHighAccuracy = languages.any { it == "ben" || it == "ara" }
+        val repository = if (preferHighAccuracy) "tessdata_best" else "tessdata_fast"
+        val dataRoot = when {
+            "ben" in languages -> File(filesDir, "tesseract_bengali_best")
+            "ara" in languages -> File(filesDir, "tesseract_arabic_best")
+            else -> File(filesDir, "tesseract")
+        }
 
         try {
             downloadOcrModels(dataRoot, languages, repository)
             return dataRoot
         } catch (error: Exception) {
-            // An upgrade must not strand existing users offline if they already
-            // have the previous fast models cached.
+            // Preserve offline access when all selected fast models are already cached.
             val fastRoot = File(filesDir, "tesseract")
             val cachedFastModelsAvailable = languages.all { code ->
                 val model = File(fastRoot, "tessdata/$code.traineddata")
                 isVerifiedOcrModel(model, ocrModelIntegrity("tessdata_fast", code))
             }
-            if (preferBengaliAccuracy && cachedFastModelsAvailable) return fastRoot
+            if (preferHighAccuracy && cachedFastModelsAvailable) return fastRoot
             throw error
         }
     }
@@ -2882,6 +2907,10 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 "tessdata_best", "e12c65a915945e4c28e237a9b52bc4a8f39a0cec",
                 15_400_601L, "176dc3220de7db34d3b3aecbfa42043a6038348b"
             )
+            "tessdata_best/ara" -> OcrModelIntegrity(
+                "tessdata_best", "e12c65a915945e4c28e237a9b52bc4a8f39a0cec",
+                12_603_724L, "4b687c7d54c86cf6219aebe781b47284fd5d41f0"
+            )
             "tessdata_fast/ben" -> OcrModelIntegrity(
                 "tessdata_fast", "87416418657359cb625c412a48b6e1d6d41c29bd",
                 855_841L, "7e9054d1de309714009a85555f5276168d41af9c"
@@ -2889,6 +2918,10 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             "tessdata_fast/eng" -> OcrModelIntegrity(
                 "tessdata_fast", "87416418657359cb625c412a48b6e1d6d41c29bd",
                 4_113_088L, "bbef4675053b5b468cdb477053e28b1c698ba08e"
+            )
+            "tessdata_fast/ara" -> OcrModelIntegrity(
+                "tessdata_fast", "87416418657359cb625c412a48b6e1d6d41c29bd",
+                1_432_056L, "c8d129c67821c1592cac46836686b057ecc203dc"
             )
             else -> throw IOException("No trusted OCR model is configured for $repository/$code.")
         }
@@ -3078,15 +3111,35 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             return
         }
         val defaultLocale = Locale.getDefault()
-        val hasBanglaCharacters = narrationText.any { it in '\u0980'..'\u09FF' }
+        val banglaCharacterCount = narrationText.count { it in '\u0980'..'\u09FF' }
+        val arabicCharacterCount = narrationText.count {
+            it in '\u0600'..'\u06FF' ||
+                it in '\u0750'..'\u077F' ||
+                it in '\u08A0'..'\u08FF' ||
+                it in '\uFB50'..'\uFDFF' ||
+                it in '\uFE70'..'\uFEFF'
+        }
+        val hasBanglaCharacters = banglaCharacterCount > 0
+        val hasArabicCharacters = arabicCharacterCount > 0
         val preferredLocale = if (mode == "ocr") {
-            when (preferences.getString("ocr_language", "ben") ?: "ben") {
-                "ben" -> Locale("bn", "BD")
-                "eng" -> Locale.ENGLISH
-                else -> if (hasBanglaCharacters) Locale("bn", "BD") else defaultLocale
+            val selectedLanguages =
+                (preferences.getString("ocr_language", "ben+eng+ara") ?: "ben+eng+ara").split('+')
+            when {
+                selectedLanguages == listOf("ben") -> Locale("bn", "BD")
+                selectedLanguages == listOf("eng") -> Locale.ENGLISH
+                selectedLanguages == listOf("ara") -> Locale("ar")
+                "ara" in selectedLanguages && arabicCharacterCount > banglaCharacterCount ->
+                    Locale("ar")
+                "ben" in selectedLanguages && hasBanglaCharacters -> Locale("bn", "BD")
+                "eng" in selectedLanguages -> Locale.ENGLISH
+                "ara" in selectedLanguages -> Locale("ar")
+                "ben" in selectedLanguages -> Locale("bn", "BD")
+                else -> defaultLocale
             }
         } else if (hasBanglaCharacters) {
             Locale("bn", "BD")
+        } else if (hasArabicCharacters) {
+            Locale("ar")
         } else {
             defaultLocale
         }
@@ -3104,6 +3157,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         }
         if (usingDefaultVoice && mode == "ocr" && preferredLocale.language == "bn") {
             toast("A Bangla voice is not installed; using the device default voice. Install one in Android TTS settings when available.")
+        } else if (usingDefaultVoice && mode == "ocr" && preferredLocale.language == "ar") {
+            toast("An Arabic voice is not installed; using the device default voice. Install one in Android TTS settings when available.")
         }
         if (preferredLocale.language == "bn") {
             applySavedBanglaVoice(speech)
@@ -3128,7 +3183,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         queueNarrationSegments(0)
         if (mode == "ocr") {
             val uri = currentBook?.uri
-            val language = preferences.getString("ocr_language", "ben") ?: "ben"
+            val language = preferences.getString("ocr_language", "ben+eng+ara") ?: "ben+eng+ara"
             if (uri != null) prefetchNextOcrPage(pageIndex, uri, language)
         }
         clearBusy()

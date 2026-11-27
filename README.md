@@ -2,7 +2,7 @@
 
 **A Bangla-first Android PDF reader with OCR-based read-aloud for scanned and image-based PDFs.**
 
-Kontho (কণ্ঠ) is an Android application built with Kotlin for reading Bangla and English PDFs. Its main strength is recognizing Bangla text on scanned PDF pages—even when the page is stored as an image and does not contain selectable text—and reading the recognized content aloud.
+Kontho (কণ্ঠ) is an Android application built with Kotlin for reading Bangla, English and Arabic PDFs. Its OCR can recognize these languages on scanned PDF pages—even when a page is stored as an image and does not contain selectable text—and read the recognized content aloud.
 
 ## Download
 
@@ -20,11 +20,11 @@ This link opens the external support page; no personal bank-account number is pu
 
 ## Key Features
 
-### Read Bangla scanned PDFs
+### Read scanned PDFs in Bangla, English and Arabic
 
 - **OCR for image-based pages:** Recognizes text from scanned or picture-based PDF pages that ordinary text extraction cannot read.
-- **Recognition quality as a priority:** Bangla and Bangla + English OCR use Tesseract's `tessdata_best` models when available. English-only OCR uses `tessdata_fast` for quicker recognition.
-- **Three OCR language options:** Choose Bangla, English, or Bangla + English.
+- **Recognition quality as a priority:** Any OCR selection that includes Bangla or Arabic uses Tesseract's `tessdata_best` models when available. English-only OCR uses `tessdata_fast` for quicker recognition.
+- **Seven OCR language options:** Choose Bangla, English, Arabic, any two together, or all three. All three languages are selected by default.
 - **On-device page recognition:** After the required language models have been downloaded, page recognition runs on the device. A first-time model download requires an internet connection.
 - **Page-by-page processing:** Each page is rendered at OCR-friendly resolution and processed separately to help control memory use. Sparse-text pages receive an additional recognition attempt.
 
@@ -57,19 +57,19 @@ This link opens the external support page; no personal bank-account number is pu
 - Lets readers retain a book's OCR cache or clear it when leaving the book. OCR text cache and downloaded language models use separate storage.
 - Includes settings for next-page pre-scanning, automatic continuation, reading-position visibility, and background playback.
 
-## Reading a scanned Bangla PDF
+## Reading a scanned PDF
 
 1. Open Kontho and select a PDF from the library, or use the PDF picker to open one.
 2. Open the reader menu and choose **Read aloud · Accurate OCR** for pages that are scans or images rather than selectable text.
-3. Open the read-aloud settings and choose **Bangla**, **English**, or **Bangla + English** to match the document.
-4. On first use of a language, connect to the internet so Kontho can download the required OCR model. Later recognition can run locally using the downloaded model.
+3. Open the read-aloud settings and choose Bangla, English, Arabic, or a combination that matches the document. The default is **Bangla + English + Arabic**.
+4. On first use, connect to the internet so Kontho can download the selected OCR models. The default three-language setting downloads about 39 MB in total. Later recognition runs locally using the downloaded models.
 5. Start reading. Use the playback controls to pause, resume, restart the page, or stop. Enable next-page pre-scanning and automatic continuation for a more continuous listening experience.
 
 For PDFs that already contain selectable text, use **Read aloud** instead. Text extraction can be quicker because it does not require OCR.
 
 ## OCR and speech: what to expect
 
-Kontho uses the open-source Tesseract4Android OCR engine. The app prioritizes higher-recognition-quality models for Bangla where possible, but OCR is not perfect. Results depend on scan resolution, contrast, page alignment, font size, and page layout. Some pages may require correction or a repeat scan.
+Kontho uses the open-source Tesseract4Android OCR engine. The app prioritizes higher-recognition-quality models for Bangla and Arabic where possible, but OCR is not perfect. Results depend on scan resolution, contrast, page alignment, font size, and page layout. Some pages may require correction or a repeat scan.
 
 By default speech comes from the Android TTS engine, which can sound synthetic. For a more natural voice, open Settings → **Voice** and choose the offline Bangla voice or an Azure neural voice. The offline voice is a character-based model: it can still mispronounce some words, so the vowel-fix option is a best-effort heuristic. The device voice can be changed in Settings → **Bangla speech voice & engine**.
 
@@ -118,6 +118,6 @@ GitHub Actions builds and uploads a debug APK and a release AAB for build inspec
 
 ## Project status and release preparation
 
-Kontho is under active development. Before distributing a build, verify the latest GitHub Actions run and test the resulting APK on a physical Android device, especially with scanned Bangla PDFs and the intended Bangla TTS voice.
+Kontho is under active development. Before distributing a build, verify the latest GitHub Actions run and test the resulting APK on a physical Android device, especially with scanned Bangla, English and Arabic PDFs and the intended device TTS voices.
 
 For release requirements, see the [Google Play release checklist](docs/GOOGLE_PLAY_RELEASE_CHECKLIST.md). Store listing details, data-safety declarations, app signing, and final submission still need to be completed in Play Console.
