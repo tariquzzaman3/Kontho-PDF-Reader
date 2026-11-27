@@ -1,7 +1,6 @@
 package org.kontho.pdfreader
 
 import androidx.activity.ComponentActivity
-import android.app.AlertDialog
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.Typeface
@@ -530,7 +529,7 @@ class SettingsActivity : ComponentActivity() {
         addSection(label("GENERAL", "সাধারণ"))
         val language = prefs.getString("app_language", "en") ?: "en"
         addRow(label("App language", "অ্যাপের ভাষা"), if (language == "bn") "বাংলা" else "English") {
-            AlertDialog.Builder(this).setTitle(label("App language", "অ্যাপের ভাষা"))
+            KDialog(this).setTitle(label("App language", "অ্যাপের ভাষা"))
                 .setSingleChoiceItems(arrayOf("English", "বাংলা"), if (language == "bn") 1 else 0) { dialog, which ->
                     prefs.edit().putString("app_language", if (which == 1) "bn" else "en").apply()
                     dialog.dismiss(); render()
@@ -542,7 +541,7 @@ class SettingsActivity : ComponentActivity() {
             label("Set as default reader", "ডিফল্ট রিডার হিসেবে সেট করুন"),
             label("Open PDFs from other apps with Kontho", "অন্যান্য অ্যাপের PDF কণ্ঠে খুলুন")
         ) {
-            AlertDialog.Builder(this)
+            KDialog(this)
                 .setTitle(label("Set as default PDF reader", "ডিফল্ট PDF রিডার হিসেবে সেট করুন"))
                 .setMessage(
                     label(
@@ -571,31 +570,14 @@ class SettingsActivity : ComponentActivity() {
                 .show()
         }
 
-        addRow(label("Appearance", "থিম"), when (theme) { "light" -> label("Light", "লাইট"); "dark" -> label("Dark", "ডার্ক"); else -> label("System default", "সিস্টেম ডিফল্ট") }) {
-            AlertDialog.Builder(this).setTitle(label("Appearance", "থিম"))
-                .setSingleChoiceItems(arrayOf(label("System default", "সিস্টেম ডিফল্ট"), label("Light", "লাইট"), label("Dark", "ডার্ক")), when (theme) { "light" -> 1; "dark" -> 2; else -> 0 }) { dialog, which ->
-                    prefs.edit().putString("app_theme", arrayOf("system", "light", "dark")[which]).apply()
-                    dialog.dismiss()
-                    recreate()
-                }.setNegativeButton(label("Cancel", "বাতিল"), null).show()
-        }
-
+        val themeName = when (theme) { "light" -> label("Light", "লাইট"); "dark" -> label("Dark", "ডার্ক"); else -> label("System default", "সিস্টেম ডিফল্ট") }
         val view = prefs.getString("library_view", "grid") ?: "grid"
-        addRow(label("Library layout", "বই দেখানোর ধরন"), if (view == "list") label("List", "লিস্ট") else label("Grid", "গ্রিড")) {
-            AlertDialog.Builder(this).setTitle(label("Library layout", "বই দেখানোর ধরন"))
-                .setSingleChoiceItems(arrayOf(label("Grid", "গ্রিড"), label("List", "লিস্ট")), if (view == "list") 1 else 0) { dialog, which ->
-                    prefs.edit().putString("library_view", if (which == 1) "list" else "grid").apply()
-                    dialog.dismiss(); render()
-                }.setNegativeButton(label("Cancel", "বাতিল"), null).show()
-        }
-
         val columns = prefs.getInt("grid_columns", 2).coerceIn(1, 10)
-        addRow(label("Grid columns", "গ্রিড কলাম"), "$columns") {
-            AlertDialog.Builder(this).setTitle(label("Grid columns", "গ্রিড কলাম"))
-                .setSingleChoiceItems((1..10).map { it.toString() }.toTypedArray(), columns - 1) { dialog, which ->
-                    prefs.edit().putInt("grid_columns", which + 1).apply()
-                    dialog.dismiss(); render()
-                }.setNegativeButton(label("Cancel", "বাতিল"), null).show()
+        val layoutName = if (view == "list") label("List", "লিস্ট") else label("Grid · $columns columns", "গ্রিড · $columns কলাম")
+        val accentFamily = Palette.ACCENTS.firstOrNull { it.key == Ui.accentKey(this) } ?: Palette.ACCENTS.first()
+        val themeSummary = if (pal.dark) themeName else "$themeName · " + label(accentFamily.nameEn, accentFamily.nameBn)
+        addRow(label("Appearance", "থিম ও চেহারা"), "$themeSummary\n$layoutName") {
+            startActivity(Intent(this, AppearanceSettingsActivity::class.java))
         }
 
         val sort = prefs.getString("sort_field", "name") ?: "name"
@@ -607,39 +589,17 @@ class SettingsActivity : ComponentActivity() {
         addRow(label("Sort books", "বই সাজান"), sortSummary) {
             val items = arrayOf(label("Name · ascending", "নাম: শুরু থেকে শেষ"), label("Name · descending", "নাম: শেষ থেকে শুরু"), label("Date · newest first", "তারিখ · নতুন আগে"), label("Date · oldest first", "তারিখ · পুরোনো আগে"))
             val selected = when (sort) { "date" -> if (descending) 2 else 3; else -> if (descending) 1 else 0 }
-            AlertDialog.Builder(this).setTitle(label("Sort books", "বই সাজান")).setSingleChoiceItems(items, selected) { dialog, which ->
+            KDialog(this).setTitle(label("Sort books", "বই সাজান")).setSingleChoiceItems(items, selected) { dialog, which ->
                 prefs.edit().putString("sort_field", if (which < 2) "name" else "date").putBoolean("sort_descending", which == 1 || which == 2).apply()
                 dialog.dismiss(); render()
             }.setNegativeButton(label("Cancel", "বাতিল"), null).show()
         }
 
         addSection(label("READING", "পাঠ"))
-        val narrationRates = floatArrayOf(0.75f, 0.85f, 0.95f, 1.05f)
-        val narrationRateLabels = arrayOf(
-            label("Slow storyteller (0.75x)", "ধীর গল্পপাঠ (০.৭৫×)"),
-            label("Storyteller (0.85x)", "গল্পপাঠ (০.৮৫×)"),
-            label("Natural (0.95x)", "স্বাভাবিক (০.৯৫×)"),
-            label("Fast (1.05x)", "দ্রুত (১.০৫×)")
-        )
-        val savedNarrationRate = prefs.getFloat("narration_rate", 0.85f)
-        val selectedNarrationRate = narrationRates.indices.minByOrNull {
-            kotlin.math.abs(narrationRates[it] - savedNarrationRate)
-        } ?: 1
-        addRow(label("Narration pace", "পাঠের গতি"), narrationRateLabels[selectedNarrationRate]) {
-            AlertDialog.Builder(this).setTitle(label("Narration pace", "পাঠের গতি"))
-                .setSingleChoiceItems(narrationRateLabels, selectedNarrationRate) { dialog, which ->
-                    prefs.edit().putFloat("narration_rate", narrationRates[which]).apply()
-                    dialog.dismiss()
-                    render()
-                }
-                .setNegativeButton(label("Cancel", "বাতিল"), null)
-                .show()
-        }
-
         addRow(
             label("Reading voice", "পাঠের কণ্ঠ"),
-            VoiceEngines.title(this, VoiceEngines.selected(this)) + " · " +
-                label("Azure, offline MMS or device voice", "Azure, অফলাইন MMS বা ডিভাইসের কণ্ঠ")
+            VoiceEngines.title(this, VoiceEngines.selected(this)) + "\n" +
+                label("Voice, speed, pitch and what is read aloud", "কণ্ঠ, গতি, স্বর ও কী কী পড়া হবে")
         ) {
             startActivity(Intent(this, VoiceSettingsActivity::class.java))
         }
@@ -669,7 +629,7 @@ class SettingsActivity : ComponentActivity() {
         }
 
         addRow(label("About storage access", "স্টোরেজ সম্পর্কে"), label("Books are scanned only in your selected folder. OCR text cache stays in app storage and follows the limit in Settings → OCR.", "শুধু আপনার বেছে নেওয়া ফোল্ডারে বই খোঁজা হয়। OCR লেখার ক্যাশ অ্যাপের নিজস্ব স্টোরেজে থাকে এবং সেটিংস → OCR-এর সীমা মেনে চলে।")) {
-            AlertDialog.Builder(this).setMessage(label("Kontho scans only the folder you grant access to. Android does not allow unrestricted scanning of every location by default. PDF files remain where you store them, while OCR text cache is managed separately in app storage. Speech is generated by Android text-to-speech; this version does not save generated audio files.", "কণ্ঠ শুধু আপনার অনুমতি দেওয়া ফোল্ডার স্ক্যান করে। Android ডিফল্টভাবে সব জায়গা অবাধে স্ক্যান করতে দেয় না। PDF আপনার নির্বাচিত জায়গাতেই থাকে, আর OCR লেখার ক্যাশ অ্যাপের নিজস্ব স্টোরেজে আলাদাভাবে থাকে। Android-এর টেক্সট-টু-স্পিচ কণ্ঠ তৈরি করে; এই সংস্করণে তৈরি অডিও ফাইল হিসেবে সংরক্ষণ করা হয় না।"))
+            KDialog(this).setMessage(label("Kontho scans only the folder you grant access to. Android does not allow unrestricted scanning of every location by default. PDF files remain where you store them, while OCR text cache is managed separately in app storage. Speech is generated by Android text-to-speech; this version does not save generated audio files.", "কণ্ঠ শুধু আপনার অনুমতি দেওয়া ফোল্ডার স্ক্যান করে। Android ডিফল্টভাবে সব জায়গা অবাধে স্ক্যান করতে দেয় না। PDF আপনার নির্বাচিত জায়গাতেই থাকে, আর OCR লেখার ক্যাশ অ্যাপের নিজস্ব স্টোরেজে আলাদাভাবে থাকে। Android-এর টেক্সট-টু-স্পিচ কণ্ঠ তৈরি করে; এই সংস্করণে তৈরি অডিও ফাইল হিসেবে সংরক্ষণ করা হয় না।"))
                 .setPositiveButton(label("OK", "ঠিক আছে"), null).show()
         }
 
@@ -680,7 +640,7 @@ class SettingsActivity : ComponentActivity() {
             "Unknown"
         }
         addRow(label("About Kontho", "কণ্ঠ পরিচিতি"), label("Version $appVersion · Bangla PDF reader", "সংস্করণ $appVersion · বাংলা PDF রিডার")) {
-            AlertDialog.Builder(this)
+            KDialog(this)
                 .setTitle("কণ্ঠ · Kontho PDF Reader")
                 .setMessage(label("Version $appVersion\nRead PDFs, use Bengali/English OCR, and listen through Android text-to-speech.", "সংস্করণ $appVersion\nPDF পড়ুন, বাংলা/ইংরেজি OCR ব্যবহার করুন এবং Android-এর কণ্ঠে শুনুন।"))
                 .setNeutralButton(label("GitHub project", "GitHub প্রকল্প")) { _, _ -> openProjectPage() }
@@ -764,7 +724,7 @@ class SettingsActivity : ComponentActivity() {
         GithubReleaseChecker.check(this) { result ->
             if (isFinishing || isDestroyed) return@check
             if (result.latestVersion == null) {
-                AlertDialog.Builder(this)
+                KDialog(this)
                     .setTitle(label("Latest changelog unavailable", "সর্বশেষ পরিবর্তন পাওয়া যায়নি"))
                     .setMessage(label(
                         "Could not load release notes from GitHub. Details: ${result.errorMessage ?: "unknown error"}",
@@ -778,7 +738,7 @@ class SettingsActivity : ComponentActivity() {
             val notes = result.releaseNotes?.let { formatReleaseNotes(it) }
                 ?.takeIf { it.isNotBlank() }
                 ?: label("The latest GitHub release has no changelog yet.", "সর্বশেষ GitHub রিলিজে এখনো পরিবর্তনের বিবরণ নেই।")
-            AlertDialog.Builder(this)
+            KDialog(this)
                 .setTitle("${result.releaseTitle ?: "Kontho PDF Reader"} · ${result.latestVersion}")
                 .setMessage(notes)
                 .setPositiveButton(label("Open release", "রিলিজ খুলুন")) { _, _ ->
@@ -820,7 +780,7 @@ class SettingsActivity : ComponentActivity() {
                 } else {
                     label("Open release", "রিলিজ খুলুন")
                 }
-                AlertDialog.Builder(this)
+                KDialog(this)
                     .setTitle(label("Kontho update available", "কণ্ঠের আপডেট পাওয়া গেছে"))
                     .setMessage(label(
                         "Installed version: ${result.installedVersion}\nLatest version: ${result.latestVersion}\n\nChoose Download update to open the APK in your default browser.",
@@ -844,7 +804,7 @@ class SettingsActivity : ComponentActivity() {
                         "আপনার অ্যাপটি সর্বশেষ সংস্করণে আছে। ইনস্টল করা সংস্করণ: ${result.installedVersion}। সর্বশেষ প্রকাশিত সংস্করণ: ${result.latestVersion}।"
                     )
                 }
-                AlertDialog.Builder(this)
+                KDialog(this)
                     .setTitle(label("Update check", "আপডেট পরীক্ষা"))
                     .setMessage(message)
                     .setPositiveButton(label("Open releases", "রিলিজ খুলুন")) { _, _ -> openReleasePage(result.releaseUrl) }
@@ -904,7 +864,7 @@ Kontho uses PDFs and folders you choose through Android's document picker. Book 
 The app has no accounts, ads, analytics, or app-operated server that receives PDFs or recognized OCR text. On first OCR use it downloads public Tesseract language models from GitHub. When automatic update checks are enabled, it also requests public GitHub release metadata at most once a day, or when you manually check in Settings. These requests never include your PDFs or OCR text; GitHub may log ordinary connection metadata such as your IP address.
 
 Read aloud uses the Android TTS engine. Depending on that engine and its settings, speech may be processed locally or by the engine provider. You can clear OCR cache in OCR settings. Contact: GitHub repository issues."""
-        AlertDialog.Builder(this).setTitle(title).setMessage(message)
+        KDialog(this).setTitle(title).setMessage(message)
             .setPositiveButton(if (bn) "অনলাইনে সম্পূর্ণ নীতি খুলুন" else "Open full policy online") { _, _ ->
                 try { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/tariquzzaman3/Kontho-PDF-Reader/blob/main/docs/privacy-policy.md"))) }
                 catch (_: Exception) { Toast.makeText(this, if (bn) "নীতির লিংক খোলা যায়নি" else "Could not open policy link", Toast.LENGTH_LONG).show() }

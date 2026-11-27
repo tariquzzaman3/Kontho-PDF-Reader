@@ -357,7 +357,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
     private fun currentSettingsSnapshot(): String {
         val p = getSharedPreferences("kontho_library", MODE_PRIVATE)
-        return listOf("app_theme", "app_language", "library_view", "grid_columns", "sort_field", "sort_descending", "book_folder_uri")
+        return listOf("app_theme", "app_accent", "app_language", "library_view", "grid_columns", "sort_field", "sort_descending", "book_folder_uri")
             .joinToString("|") { key -> p.all[key]?.toString() ?: "" }
     }
 
@@ -368,6 +368,11 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         if (clearedAt != seenOcrCacheClearedAt) {
             seenOcrCacheClearedAt = clearedAt
             ocrTextCache.clear()
+        }
+        // Speed and pitch are edited in Settings → Reading voice while this screen waits.
+        if (ttsReady) {
+            tts?.setSpeechRate(preferences.getFloat("narration_rate", 0.85f).coerceIn(0.5f, 1.5f))
+            tts?.setPitch(preferences.getFloat("narration_pitch", 1.0f).coerceIn(0.5f, 1.5f))
         }
         maybeCheckForUpdatesAutomatically()
         applyKeepScreenAwakeFlag()
@@ -1823,7 +1828,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
         // One button: Settings → OCR decides how scanned pages are read.
         addAction(label("Read aloud", "পড়ে শোনান"),
-            { startReadAloud() }, { showSpeechSettings() })
+            { startReadAloud() }, { openVoiceSettings() })
         val pageJumpRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -2054,297 +2059,9 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         menuPopup.showAsDropDown(anchor, 0, dp(4), Gravity.END)
     }
 
-    private fun showSpeechSettings() {
-        val language = preferences.getString("app_language", "en") == "bn"
-        val rateValue = preferences.getFloat("narration_rate", 0.85f).coerceIn(0.5f, 1.5f)
-        val pitchValue = preferences.getFloat("narration_pitch", 1.0f).coerceIn(0.5f, 1.5f)
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(18), dp(8), dp(18), dp(8))
-        }
-        val rateLabel = TextView(this).apply {
-            text = if (language) "পাঠের গতি" else "Reading speed"
-            textSize = 14f
-        }
-        val rateValueLabel = TextView(this).apply {
-            text = "${"%.2f".format(Locale.US, rateValue)}×"
-            textSize = 12f
-        }
-        val rate = SeekBar(this).apply {
-            max = 100
-            progress = ((rateValue - 0.5f) * 100).roundToInt().coerceIn(0, 100)
-        }
-        rate.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                rateValueLabel.text = "${"%.2f".format(Locale.US, 0.5f + progress / 100f)}×"
-            }
-            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
-            override fun onStopTrackingTouch(seekBar: SeekBar?) {}
-        })
-        val pitchLabel = TextView(this).apply {
-            text = if (language) "কণ্ঠের স্বর" else "Voice pitch"
-            textSize = 14f
-        }
-        val pitchValueLabel = TextView(this).apply {
-            text = "${"%.2f".format(Locale.US, pitchValue)}×"
-            textSize = 12f
-        }
-        val pitch = SeekBar(this).apply {
-            max = 100
-            progress = ((pitchValue - 0.5f) * 100).roundToInt().coerceIn(0, 100)
-        }
-        pitch.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                pitchValueLabel.text = "${"%.2f".format(Locale.US, 0.5f + progress / 100f)}×"
-            }
-            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
-            override fun onStopTrackingTouch(seekBar: SeekBar?) {}
-        })
-
-        fun option(title: String, key: String, defaultValue: Boolean, description: String? = null): CheckBox {
-            val checkbox = CheckBox(this).apply {
-                text = title
-                textSize = 13f
-                isChecked = preferences.getBoolean(key, defaultValue)
-                setPadding(0, dp(3), 0, dp(3))
-            }
-            root.addView(checkbox, ViewGroup.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
-            ))
-            if (description != null) {
-                root.addView(TextView(this).apply {
-                    text = description
-                    textSize = 11f
-                    alpha = 0.78f
-                    setPadding(dp(32), 0, 0, dp(4))
-                })
-            }
-            return checkbox
-        }
-
-        root.addView(rateLabel)
-        root.addView(rateValueLabel)
-        root.addView(rate)
-        root.addView(pitchLabel)
-        root.addView(pitchValueLabel)
-        root.addView(pitch)
-        val banglaVoiceButton = Button(this).apply {
-            text = if (language) "বাংলা কণ্ঠ বেছে নিন / পরীক্ষা করুন" else "Choose / test Bangla voice"
-            isAllCaps = false
-            setOnClickListener { showBanglaVoiceOptions() }
-        }
-        root.addView(banglaVoiceButton, LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
-        ))
-        val voiceHelp = TextView(this).apply {
-            text = if (language) {
-                "কণ্ঠের স্বাভাবিকতা ফোনে ইনস্টল করা TTS ইঞ্জিন ও ভয়েসের ওপর নির্ভর করে।"
-            } else {
-                "Naturalness depends on the speech engine and voices installed on this phone."
-            }
-            textSize = 11f
-            alpha = 0.78f
-            setPadding(0, dp(2), 0, dp(8))
-        }
-        root.addView(voiceHelp)
-        val scanAhead = option(
-            if (language) "পরের পৃষ্ঠা আগে স্ক্যান করুন" else "Scan the next page ahead",
-            "ocr_prefetch_next_page", true
-        )
-        val continuePages = option(
-            if (language) "পরের পৃষ্ঠায় স্বয়ংক্রিয়ভাবে পড়া চালান" else "Continue automatically to the next page",
-            "ocr_continue_next_page", true
-        )
-        val backgroundAudio = option(
-            if (language) "অ্যাপ পেছনে গেলেও পড়া চালান" else "Keep reading when the app is in the background",
-            "read_aloud_background", false,
-            if (language) "অ্যাপ জোর করে বন্ধ করলে Android পড়া থামাতে পারে।" else "Android may stop playback if the app is force-closed or its process is killed."
-        )
-        val showPosition = option(
-            if (language) "পড়ার অবস্থান দেখান" else "Show reading position",
-            "show_reading_position", true
-        )
-        val skipPageNumbers = option(
-            if (language) "পড়ে শোনানোর সময় পৃষ্ঠা নম্বর বাদ দিন" else "Skip page numbers when reading aloud",
-            "read_aloud_skip_page_numbers", true,
-            if (language) "পাতার শুরু বা শেষে থাকা একক পৃষ্ঠা নম্বর বাদ দেওয়ার চেষ্টা করবে।" else "Attempts to remove standalone page numbers near the beginning or end of a page."
-        )
-        val skipRepeatedBookTitle = option(
-            if (language) "প্রতি পাতায় বারবার আসা বইয়ের নাম বাদ দিন" else "Skip repeated book title on each page",
-            "read_aloud_skip_book_title", true,
-            if (language) "পাতার শুরু বা শেষে বইয়ের নামের মতো থাকা লাইন বাদ দেওয়ার চেষ্টা করবে।" else "Attempts to remove lines matching the book title near the beginning or end of each page."
-        )
-        val keepCache = option(
-            if (language) "বই মুছে ফেলা পর্যন্ত OCR ক্যাশ রাখুন" else "Keep OCR cache until the book is deleted",
-            "ocr_keep_cache", true,
-            if (language) "বন্ধ করলে বই বন্ধ করার সময় সেই বইয়ের স্ক্যান মুছে যাবে।" else "When off, OCR text for a book is cleared when you leave that book."
-        )
-        val cacheHelp = TextView(this).apply {
-            text = if (language) {
-                "OCR ইঞ্জিন, ভাষা ও লেখার ক্যাশের সর্বোচ্চ আকার সেটিংস → OCR-এ বদলানো যাবে। ভাষার মডেল আলাদা থাকে।"
-            } else {
-                "Choose the OCR engine, languages and maximum text-cache size in Settings → OCR. Downloaded language models use separate storage."
-            }
-            textSize = 11f
-            alpha = 0.78f
-            setPadding(0, dp(4), 0, 0)
-        }
-        root.addView(cacheHelp)
-        val ocrOptionsButton = Button(this).apply {
-            text = if (language) "OCR সেটিংস" else "OCR settings"
-            isAllCaps = false
-            setOnClickListener { showOcrSettings() }
-        }
-        root.addView(ocrOptionsButton, LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
-        ))
-
-        val scroll = ScrollView(this).apply {
-            isFillViewport = false
-            addView(root, ViewGroup.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
-            ))
-        }
-        val dialog = AlertDialog.Builder(this)
-            .setTitle(if (language) "পড়ে শোনানোর সেটিংস" else "Read aloud settings")
-            .setView(scroll)
-            .setNeutralButton(if (language) "ডিভাইসের TTS সেটিংস" else "Device TTS settings") { _, _ -> openDeviceTtsSettings() }
-            .setNegativeButton(if (language) "বাতিল" else "Cancel", null)
-            .setPositiveButton(if (language) "সংরক্ষণ" else "Save", null)
-            .create()
-        dialog.setOnShowListener {
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                val rateSetting = 0.5f + rate.progress / 100f
-                val pitchSetting = 0.5f + pitch.progress / 100f
-                preferences.edit()
-                    .putFloat("narration_rate", rateSetting)
-                    .putFloat("narration_pitch", pitchSetting)
-                    .putBoolean("ocr_prefetch_next_page", scanAhead.isChecked)
-                    .putBoolean("ocr_continue_next_page", continuePages.isChecked)
-                    .putBoolean("read_aloud_background", backgroundAudio.isChecked)
-                    .putBoolean("show_reading_position", showPosition.isChecked)
-                    .putBoolean("read_aloud_skip_page_numbers", skipPageNumbers.isChecked)
-                    .putBoolean("read_aloud_skip_book_title", skipRepeatedBookTitle.isChecked)
-                    .putBoolean("ocr_keep_cache", keepCache.isChecked)
-                    .apply()
-                tts?.setSpeechRate(rateSetting)
-                tts?.setPitch(pitchSetting)
-                updateReadingPosition(narrationPageIndex, false)
-                dialog.dismiss()
-            }
-        }
-        dialog.show()
-    }
-
-    private fun openDeviceTtsSettings() {
-        try {
-            startActivity(Intent("com.android.settings.TTS_SETTINGS"))
-        } catch (_: Exception) {
-            try { startActivity(Intent(android.provider.Settings.ACTION_SETTINGS)) }
-            catch (_: Exception) { toast("Open Android Settings and search for Text-to-speech output.") }
-        }
-    }
-
-    private fun showBanglaVoiceOptions() {
-        val speech = tts
-        if (!ttsReady || speech == null) {
-            toast("Speech engine is still starting. Please try again.")
-            return
-        }
-
-        val voices = speech.voices.orEmpty()
-            .filter { it.locale.language.equals("bn", ignoreCase = true) }
-            .distinctBy { it.name }
-            .sortedWith(
-                compareByDescending<Voice> { it.quality }
-                    .thenBy { it.isNetworkConnectionRequired }
-                    .thenBy { it.latency }
-            )
-        val language = preferences.getString("app_language", "en") == "bn"
-
-        if (voices.isEmpty()) {
-            AlertDialog.Builder(this)
-                .setTitle(if (language) "বাংলা কণ্ঠ পাওয়া যায়নি" else "No Bangla voices found")
-                .setMessage(
-                    if (language) {
-                        "আপনার বর্তমান TTS ইঞ্জিনে কোনো বাংলা কণ্ঠ তালিকাভুক্ত নেই। Android-এর Text-to-speech settings খুলে Google Speech Services বা অন্য কোনো ইঞ্জিন নির্বাচন করুন এবং Install voice data থেকে বাংলা ভয়েস ইনস্টল করুন।"
-                    } else {
-                        "Your current TTS engine does not list a Bangla voice. Open Android Text-to-speech settings, try Google Speech Services or another installed engine, and use Install voice data to add a Bangla voice if available."
-                    }
-                )
-                .setPositiveButton(if (language) "TTS সেটিংস খুলুন" else "Open TTS settings") { _, _ ->
-                    openDeviceTtsSettings()
-                }
-                .setNegativeButton(if (language) "বন্ধ" else "Close", null)
-                .show()
-            return
-        }
-
-        val automaticLabel = if (language) "স্বয়ংক্রিয় (সিস্টেমের পছন্দ)" else "Automatic (system default)"
-        val voiceLabels = voices.mapIndexed { index, voice ->
-            val localeName = when (voice.locale.country.uppercase(Locale.ROOT)) {
-                "BD" -> if (language) "বাংলাদেশি বাংলা" else "Bangladeshi Bengali"
-                "IN" -> if (language) "ভারতীয় বাংলা" else "Indian Bengali"
-                else -> voice.locale.getDisplayName(if (language) Locale("bn") else Locale.ENGLISH)
-            }
-            val quality = when {
-                voice.quality >= Voice.QUALITY_VERY_HIGH -> if (language) "উচ্চ মান" else "Very high quality"
-                voice.quality >= Voice.QUALITY_HIGH -> if (language) "উচ্চ মান" else "High quality"
-                voice.quality >= Voice.QUALITY_NORMAL -> if (language) "সাধারণ মান" else "Standard quality"
-                else -> if (language) "নিম্ন/অজানা মান" else "Basic/unknown quality"
-            }
-            val connection = if (voice.isNetworkConnectionRequired) {
-                if (language) "অনলাইন" else "online"
-            } else {
-                if (language) "অফলাইন" else "offline"
-            }
-            "${index + 1}. $localeName · $quality · $connection"
-        }
-        val options = (listOf(automaticLabel) + voiceLabels).toTypedArray()
-        val savedVoiceName = preferences.getString("bangla_tts_voice_name", null)
-        val selectedIndex = if (savedVoiceName == null) 0 else {
-            voices.indexOfFirst { it.name == savedVoiceName }.let { if (it < 0) 0 else it + 1 }
-        }
-
-        AlertDialog.Builder(this)
-            .setTitle(if (language) "বাংলা পড়ার কণ্ঠ" else "Bangla reading voice")
-            .setMessage(
-                if (language) {
-                    "একটি কণ্ঠ নির্বাচন করলে সংরক্ষণ হবে এবং নমুনা শোনাবে। অনলাইন কণ্ঠের জন্য ইন্টারনেট লাগতে পারে; লেখা কণ্ঠ-সেবাদাতার কাছে পাঠানো হতে পারে।"
-                } else {
-                    "Choose a voice to save it and hear a short sample. Online voices need internet and may send text to the speech provider."
-                }
-            )
-            .setSingleChoiceItems(options, selectedIndex) { dialog, which ->
-                val chosenVoice = voices.getOrNull(which - 1)
-                preferences.edit().apply {
-                    if (chosenVoice == null) remove("bangla_tts_voice_name")
-                    else putString("bangla_tts_voice_name", chosenVoice.name)
-                }.apply()
-                dialog.dismiss()
-
-                speech.stop()
-                val languageResult = speech.setLanguage(Locale("bn", "BD"))
-                if (languageResult < TextToSpeech.LANG_AVAILABLE) {
-                    toast("This engine cannot speak Bangla. Open Android text-to-speech settings to install a Bangla voice.")
-                    return@setSingleChoiceItems
-                }
-                if (chosenVoice != null && speech.setVoice(chosenVoice) != TextToSpeech.SUCCESS) {
-                    toast("Could not activate that voice. The system default will be used.")
-                }
-                speech.setSpeechRate(preferences.getFloat("narration_rate", 0.85f).coerceIn(0.5f, 1.5f))
-                speech.setPitch(preferences.getFloat("narration_pitch", 1.0f).coerceIn(0.5f, 1.5f))
-                val sample = "স্বাগতম। কণ্ঠ PDF Reader আপনাকে বাংলা বই পড়ে শোনাতে সাহায্য করে।"
-                val result = speech.speak(sample, TextToSpeech.QUEUE_FLUSH, null, "bangla-voice-preview")
-                if (result == TextToSpeech.ERROR) {
-                    toast("Voice preview failed. Check Android text-to-speech settings.")
-                }
-            }
-            .setNeutralButton(if (language) "TTS সেটিংস" else "TTS settings") { _, _ ->
-                openDeviceTtsSettings()
-            }
-            .setNegativeButton(if (language) "বন্ধ" else "Close", null)
-            .show()
+    private fun openVoiceSettings() {
+        readerOptionsPopup?.dismiss()
+        startActivity(Intent(this, VoiceSettingsActivity::class.java))
     }
 
     private fun applySavedBanglaVoice(speech: TextToSpeech) {
@@ -2353,11 +2070,6 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             it.name == savedVoiceName && it.locale.language.equals("bn", ignoreCase = true)
         } ?: return
         speech.setVoice(voice)
-    }
-
-    private fun showOcrSettings() {
-        readerOptionsPopup?.dismiss()
-        startActivity(Intent(this, OcrSettingsActivity::class.java))
     }
 
     private fun showPage(index: Int) {

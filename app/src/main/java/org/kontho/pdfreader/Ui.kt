@@ -25,18 +25,46 @@ import androidx.core.view.WindowInsetsControllerCompat
  * One calm green-and-paper palette for the whole app, in a light and a dark flavour.
  * Everything that draws UI asks for the palette here instead of hard-coding colours.
  */
-class Palette(val dark: Boolean) {
-    val background: Int = if (dark) 0xFF0F1614.toInt() else 0xFFF5F8F6.toInt()
+class Palette(val dark: Boolean, accentKey: String = ACCENT_GREEN) {
+    /** Light-theme colour family (the dark theme always uses the green one). */
+    private val family: AccentFamily = if (dark) ACCENTS.first() else (ACCENTS.firstOrNull { it.key == accentKey } ?: ACCENTS.first())
+
+    val background: Int = if (dark) 0xFF0F1614.toInt() else family.background
     val surface: Int = if (dark) 0xFF18211E.toInt() else 0xFFFFFFFF.toInt()
-    val surfaceAlt: Int = if (dark) 0xFF222D29.toInt() else 0xFFE9F0EC.toInt()
-    val outline: Int = if (dark) 0xFF2C3A35.toInt() else 0xFFE0E8E4.toInt()
+    val surfaceAlt: Int = if (dark) 0xFF222D29.toInt() else family.surfaceAlt
+    val outline: Int = if (dark) 0xFF2C3A35.toInt() else family.outline
     val text: Int = if (dark) 0xFFE9F2EE.toInt() else 0xFF15231F.toInt()
     val textMuted: Int = if (dark) 0xFF9FB2A9.toInt() else 0xFF5E7068.toInt()
-    val accent: Int = if (dark) 0xFF5CCBA6.toInt() else 0xFF126854.toInt()
+    val accent: Int = if (dark) 0xFF5CCBA6.toInt() else family.accent
     val onAccent: Int = if (dark) 0xFF06241A.toInt() else 0xFFFFFFFF.toInt()
-    val accentSoft: Int = if (dark) 0xFF1E3B31.toInt() else 0xFFDCEEE7.toInt()
+    val accentSoft: Int = if (dark) 0xFF1E3B31.toInt() else family.soft
     val warning: Int = if (dark) 0xFFFFB86B.toInt() else 0xFF9A5B00.toInt()
-    val ripple: Int = if (dark) 0x33FFFFFF else 0x22126854
+    val ripple: Int = if (dark) 0x33FFFFFF else (0x22000000 or (family.accent and 0xFFFFFF))
+
+    class AccentFamily(
+        val key: String,
+        val nameEn: String,
+        val nameBn: String,
+        val accent: Int,
+        val soft: Int,
+        val background: Int,
+        val surfaceAlt: Int,
+        val outline: Int
+    )
+
+    companion object {
+        const val ACCENT_GREEN = "green"
+
+        /** Colours offered for the light theme. The first one is the default. */
+        val ACCENTS: List<AccentFamily> = listOf(
+            AccentFamily("green", "Green", "সবুজ", 0xFF126854.toInt(), 0xFFDCEEE7.toInt(), 0xFFF5F8F6.toInt(), 0xFFE9F0EC.toInt(), 0xFFE0E8E4.toInt()),
+            AccentFamily("blue", "Blue", "নীল", 0xFF1A5FB4.toInt(), 0xFFDCE8F7.toInt(), 0xFFF4F7FB.toInt(), 0xFFE8EEF6.toInt(), 0xFFDEE6F0.toInt()),
+            AccentFamily("teal", "Teal", "টিল", 0xFF00727F.toInt(), 0xFFD6EEF1.toInt(), 0xFFF3F8F9.toInt(), 0xFFE5F0F2.toInt(), 0xFFDCE9EC.toInt()),
+            AccentFamily("purple", "Purple", "বেগুনি", 0xFF6A3FA0.toInt(), 0xFFE7DFF3.toInt(), 0xFFF8F5FB.toInt(), 0xFFEFE9F5.toInt(), 0xFFE7E0EF.toInt()),
+            AccentFamily("rose", "Rose", "গোলাপি", 0xFFB0305A.toInt(), 0xFFF7DCE5.toInt(), 0xFFFBF5F7.toInt(), 0xFFF5E8ED.toInt(), 0xFFEFDFE5.toInt()),
+            AccentFamily("orange", "Orange", "কমলা", 0xFFB35000.toInt(), 0xFFFBE6D3.toInt(), 0xFFFBF7F3.toInt(), 0xFFF5EBE0.toInt(), 0xFFEFE3D6.toInt())
+        )
+    }
 }
 
 object Ui {
@@ -52,7 +80,13 @@ object Ui {
         }
     }
 
-    fun palette(context: Context): Palette = Palette(isDark(context))
+    const val KEY_ACCENT = "app_accent"
+
+    fun accentKey(context: Context): String =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_ACCENT, Palette.ACCENT_GREEN)
+            ?: Palette.ACCENT_GREEN
+
+    fun palette(context: Context): Palette = Palette(isDark(context), accentKey(context))
 
     fun isBangla(context: Context): Boolean =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString("app_language", "en") == "bn"

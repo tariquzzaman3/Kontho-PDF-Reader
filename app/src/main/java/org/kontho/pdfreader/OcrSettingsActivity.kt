@@ -1,6 +1,6 @@
 package org.kontho.pdfreader
 
-import android.app.AlertDialog
+import android.widget.Switch
 import android.content.res.ColorStateList
 import android.graphics.Typeface
 import android.os.Bundle
@@ -413,6 +413,38 @@ class OcrSettingsActivity : ComponentActivity() {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
             ).apply { topMargin = dp(4); bottomMargin = dp(12) }
         )
+        val prefs = getSharedPreferences(Ui.PREFS, MODE_PRIVATE)
+        fun option(title: String, key: String, hint: String) {
+            val toggle = Switch(this).apply {
+                isChecked = prefs.getBoolean(key, true)
+                thumbTintList = ColorStateList.valueOf(palette.accent)
+                trackTintList = ColorStateList.valueOf(palette.accentSoft)
+                setOnCheckedChangeListener { _, on -> prefs.edit().putBoolean(key, on).apply() }
+            }
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setOnClickListener { toggle.isChecked = !toggle.isChecked }
+            }
+            val texts = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+            texts.addView(Ui.text(this, title, 14f, palette.text))
+            texts.addView(note(hint).apply { setPadding(0, dp(2), 0, 0) })
+            row.addView(texts, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            row.addView(toggle, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { marginStart = dp(8) })
+            outer.addView(row, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(10) })
+        }
+        option(
+            t("Scan the next page ahead", "পরের পৃষ্ঠা আগে স্ক্যান করুন"), "ocr_prefetch_next_page",
+            t("Reads the next scanned page while this one is spoken, so there is no pause.", "এই পৃষ্ঠা পড়ার সময় পরের পৃষ্ঠা স্ক্যান করে রাখে, তাই থামতে হয় না।")
+        )
+        option(
+            t("Keep OCR text until the book is deleted", "বই মুছে ফেলা পর্যন্ত OCR লেখা রাখুন"), "ocr_keep_cache",
+            t("When off, a book's scanned text is cleared when you leave that book.", "বন্ধ করলে বই বন্ধ করার সময় সেই বইয়ের স্ক্যান করা লেখা মুছে যায়।")
+        )
         cacheBody = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         outer.addView(cacheBody)
         column.addView(outer, LinearLayout.LayoutParams(
@@ -455,7 +487,7 @@ class OcrSettingsActivity : ComponentActivity() {
         val labels = arrayOf("10 MB", "25 MB", "50 MB", "100 MB", "250 MB", "500 MB", t("No limit", "সীমাহীন"))
         val saved = prefs.getInt(OcrEngines.KEY_CACHE_LIMIT_MB, 50)
         val selected = limitChoices.indexOf(saved).let { if (it >= 0) it else 2 }
-        AlertDialog.Builder(this)
+        KDialog(this)
             .setTitle(t("Maximum OCR text cache", "OCR লেখার ক্যাশের সর্বোচ্চ আকার"))
             .setSingleChoiceItems(labels, selected) { dialog, which ->
                 val limitMb = limitChoices[which]
