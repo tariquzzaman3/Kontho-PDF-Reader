@@ -27,7 +27,11 @@ import android.os.Bundle
 import android.os.Build
 import android.os.CancellationSignal
 import android.os.ParcelFileDescriptor
+import android.provider.DocumentsContract
 import android.provider.OpenableColumns
+import android.Manifest
+import android.content.Context
+import android.content.pm.PackageManager
 import android.print.PageRange
 import android.print.PrintAttributes
 import android.print.PrintDocumentAdapter
@@ -89,12 +93,20 @@ import kotlin.math.roundToInt
 
 private data class Book(val uri: Uri, val name: String)
 
-private data class OcrModelIntegrity(
-    val repository: String,
-    val revision: String,
-    val expectedSize: Long,
-    val gitBlobSha1: String
-)
+/** The file could not be opened because Android has not given Kontho access to it (not a password problem). */
+private class BookPermissionException(cause: Throwable) : IOException(cause.message, cause)
+
+/** The document picker, opened near the file that could not be read so it is quick to find again. */
+private class PickPdfWithHint(private val hint: () -> Uri?) : ActivityResultContracts.OpenDocument() {
+    override fun createIntent(context: Context, input: Array<String>): Intent {
+        val intent = super.createIntent(context, input)
+        val start = hint()
+        if (start != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            intent.putExtra(DocumentsContract.EXTRA_INITIAL_URI, start)
+        }
+        return intent
+    }
+}
 
 class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private val worker = Executors.newSingleThreadExecutor()
@@ -122,8 +134,14 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private var narrationRunId = 0
     private val queuedOcrPages = ConcurrentHashMap.newKeySet<String>()
     private var lastNarrationUtteranceId: String? = null
+    /** True while the current page is read by an MMS/Azure voice instead of Android's own TTS. */
+    private var neuralActive = false
+    /** The "using the device voice instead" notice is shown once per reading session, not on every page. */
+    private var neuralFallbackNotified = false
     private var lastNarrationMode = "device"
     private var continuousNarrationSession = false
+    private var offlineOcrNoticeShown = false
+    private var seenOcrCacheClearedAt = 0L
     private var showingLibrary = true
     private var settingsSnapshot = ""
     private var lastBookFolderUri: String? = null
@@ -131,6 +149,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     @Volatile private var readerGeneration = 0
 
     private lateinit var libraryGrid: GridLayout
+    private lateinit var libraryCount: TextView
     private lateinit var librarySwipe: SwipeRefreshLayout
     private lateinit var readerScroll: ScrollView
     private lateinit var horizontalPageScroll: HorizontalScrollView
@@ -154,7 +173,6 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private val pageBitmaps = mutableMapOf<Int, Bitmap>()
     private val pageTextCache = mutableMapOf<Int, String>()
     private val ocrTextCache = ConcurrentHashMap<String, String>()
-    private val verifiedOcrModels = ConcurrentHashMap.newKeySet<String>()
     private val queuedPageRenders = mutableSetOf<Int>()
     private var zoomScale = 1.0f
     private var basePageWidthPx = 0
@@ -167,11 +185,20 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private var touchDidMove = false
 
     private val openPdf = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) {
-            keepReadPermission(uri)
-            val book = Book(uri, displayName(uri))
-            rememberRecentBook(book)
-            openBook(book)
+        if (uri != null) openGrantedPdf(uri)
+    }
+
+    private var rePickHint: Uri? = null
+    private val rePickPdf = registerForActivityResult(PickPdfWithHint { rePickHint }) { uri ->
+        if (uri != null) openGrantedPdf(uri)
+    }
+
+    private var pendingPermissionBook: Book? = null
+    private val requestStoragePermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        val book = pendingPermissionBook
+        pendingPermissionBook = null
+        if (book != null) {
+            if (granted) openBook(book) else showPermissionHelp(book, allowStoragePrompt = false)
         }
     }
 
@@ -206,8 +233,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         }
         setTheme(if (dark) android.R.style.Theme_Material_NoActionBar else android.R.style.Theme_Material_Light_NoActionBar)
         super.onCreate(savedInstanceState)
-        window.statusBarColor = Color.rgb(112, 119, 116)
-        window.navigationBarColor = window.statusBarColor
+        Ui.applySystemBars(window, Ui.palette(this))
         PDFBoxResourceLoader.init(applicationContext)
         tts = TextToSpeech(this, this)
         lastBookFolderUri = preferences.getString(KEY_BOOK_FOLDER, null)
@@ -233,9 +259,23 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             toast("Kontho can open PDF files shared by Android, but not direct web links.")
             return
         }
+        openGrantedPdf(uri)
+    }
+
+    private fun savedFolderUri(): Uri? =
+        preferences.getString(KEY_BOOK_FOLDER, null)?.takeIf { it.isNotBlank() }?.let { Uri.parse(it) }
+
+    /**
+     * Opens a PDF that another app, the browser or the picker handed over. If the library folder
+     * covers the file, its address is rewritten to go through that folder grant so it keeps working
+     * and shows up once in the library. A file whose permission will not last (a one-time grant from
+     * a browser, say) is opened but not added to the recent list, so no dead copy is left behind.
+     */
+    private fun openGrantedPdf(uri: Uri) {
         keepReadPermission(uri)
-        val book = Book(uri, displayName(uri))
-        rememberRecentBook(book)
+        val stable = BookAccess.stableUri(this, uri, savedFolderUri())
+        val book = Book(stable, displayName(uri))
+        if (BookAccess.isDurable(this, stable)) rememberRecentBook(book)
         openBook(book)
     }
 
@@ -323,6 +363,12 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
     override fun onResume() {
         super.onResume()
+        // Settings → OCR can clear the text cache while this screen is in the background.
+        val clearedAt = preferences.getLong(OcrEngines.KEY_CACHE_CLEARED_AT, 0L)
+        if (clearedAt != seenOcrCacheClearedAt) {
+            seenOcrCacheClearedAt = clearedAt
+            ocrTextCache.clear()
+        }
         maybeCheckForUpdatesAutomatically()
         applyKeepScreenAwakeFlag()
         val snapshot = currentSettingsSnapshot()
@@ -357,8 +403,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
-        window.statusBarColor = Color.rgb(112, 119, 116)
-        window.navigationBarColor = window.statusBarColor
+        if (showingLibrary) Ui.applySystemBars(window, Ui.palette(this))
         if (showingLibrary) {
             val cachedBooks = books
             showLibrary()
@@ -388,21 +433,16 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_VISIBLE
 
         val prefs = preferences
-        val dark = when (prefs.getString("app_theme", "system")) {
-            "dark" -> true
-            "light" -> false
-            else -> (resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
-        }
+        val palette = Ui.palette(this)
+        val dark = palette.dark
         val appLanguage = prefs.getString("app_language", "en") == "bn"
         setTheme(if (dark) android.R.style.Theme_Material_NoActionBar else android.R.style.Theme_Material_Light_NoActionBar)
         fun label(en: String, bn: String) = if (appLanguage) bn else en
-        window.statusBarColor = Color.rgb(112, 119, 116)
-        window.navigationBarColor = window.statusBarColor
-        WindowInsetsControllerCompat(window, window.decorView).isAppearanceLightStatusBars = false
+        Ui.applySystemBars(window, palette)
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(if (dark) Color.rgb(25, 31, 29) else Color.rgb(248, 250, 249))
+            setBackgroundColor(palette.background)
             setPadding(dp(16), dp(8), dp(16), dp(8))
         }
 
@@ -415,59 +455,45 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             scaleType = ImageView.ScaleType.FIT_CENTER
             contentDescription = "কণ্ঠ · Kontho PDF Reader logo"
         }
-        header.addView(logo, LinearLayout.LayoutParams(dp(44), dp(44)).apply {
-            marginEnd = dp(8)
-        })
+        header.addView(logo, LinearLayout.LayoutParams(dp(40), dp(40)).apply { marginEnd = dp(12) })
 
-        val title = TextView(this).apply {
-            text = "কণ্ঠ · Kontho PDF Reader"
-            textSize = 22f
-            setTextColor(if (dark) Color.rgb(175, 225, 210) else Color.rgb(18, 76, 66))
-            gravity = Gravity.CENTER_VERTICAL
-            typeface = Typeface.DEFAULT_BOLD
+        val titleColumn = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        titleColumn.addView(Ui.text(this, "কণ্ঠ", 24f, palette.accent, bold = true).apply { maxLines = 1 })
+        titleColumn.addView(Ui.text(this, "KONTHO PDF READER", 10f, palette.textMuted).apply {
+            letterSpacing = 0.16f
             maxLines = 1
-            ellipsize = android.text.TextUtils.TruncateAt.END
-        }
-        header.addView(title, LinearLayout.LayoutParams(0, dp(52), 1f))
+        })
+        header.addView(titleColumn, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
 
-        val settingsButton = TextView(this).apply {
-            text = "⚙"
-            textSize = 26f
-            gravity = Gravity.CENTER
-            setTextColor(if (dark) Color.WHITE else Color.rgb(18, 76, 66))
-            contentDescription = label("Settings", "সেটিংস")
-            setPadding(dp(10), 0, dp(2), 0)
-            isClickable = true
-            isFocusable = true
-            setOnClickListener { startActivity(Intent(this@MainActivity, SettingsActivity::class.java)) }
-        }
-        header.addView(settingsButton, LinearLayout.LayoutParams(dp(48), dp(52)))
-        root.addView(header, matchWrap())
+        header.addView(
+            Ui.iconButton(this, palette, R.drawable.ic_tune, label("Settings", "সেটিংস")) {
+                startActivity(Intent(this@MainActivity, SettingsActivity::class.java))
+            },
+            LinearLayout.LayoutParams(dp(44), dp(44))
+        )
+        root.addView(header, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, dp(56)
+        ))
 
         val sortRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        val dividerLine = View(this).apply {
-            setBackgroundColor(if (dark) Color.rgb(76, 91, 84) else Color.rgb(210, 220, 215))
-        }
-        sortRow.addView(dividerLine, LinearLayout.LayoutParams(0, dp(1), 1f))
-        val sortButton = TextView(this).apply {
-            text = label("Sort ▾", "সাজান ▾")
-            textSize = 14f
-            gravity = Gravity.CENTER
-            setTextColor(if (dark) Color.rgb(213, 231, 222) else Color.rgb(32, 79, 66))
-            setPadding(dp(12), dp(7), dp(2), dp(7))
+        libraryCount = Ui.text(this, "", 13f, palette.textMuted)
+        sortRow.addView(libraryCount, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        val sortButton = Ui.text(this, label("Sort ▾", "সাজান ▾"), 13f, palette.accent, bold = true).apply {
+            setPadding(dp(14), dp(7), dp(14), dp(7))
+            background = Ui.rippleShape(palette.accentSoft, dp(16).toFloat(), palette.ripple)
             isClickable = true
             isFocusable = true
             setOnClickListener { showSortMenu(this) }
         }
         sortRow.addView(sortButton, LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT, dp(34)
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
         ))
         root.addView(sortRow, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
-        ).apply { bottomMargin = dp(4) })
+        ).apply { topMargin = dp(4); bottomMargin = dp(8) })
 
         val columns = if (prefs.getString("library_view", "grid") == "list") {
             1
@@ -482,12 +508,14 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         val listScroll = ScrollView(this).apply {
             isFillViewport = true
             clipToPadding = false
+            setPadding(0, 0, 0, dp(88)) // room for the floating button under the last row
             addView(libraryGrid, ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
             ))
         }
         librarySwipe = SwipeRefreshLayout(this).apply {
-            setColorSchemeColors(Color.rgb(18, 104, 84))
+            setColorSchemeColors(palette.accent)
+            setProgressBackgroundColorSchemeColor(palette.surface)
             setOnRefreshListener {
                 isRefreshing = false
                 refreshLibrary()
@@ -496,7 +524,30 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT
             ))
         }
-        root.addView(librarySwipe, LinearLayout.LayoutParams(
+
+        // Floating button: open a single PDF from anywhere on the phone.
+        val openPdfButton = LinearLayout(this).apply {
+            gravity = Gravity.CENTER
+            contentDescription = label("Open a PDF", "PDF খুলুন")
+            background = Ui.rippleShape(palette.accent, dp(28).toFloat(), 0x33FFFFFF)
+            elevation = dp(6).toFloat()
+            isClickable = true
+            isFocusable = true
+            addView(
+                Ui.icon(this@MainActivity, R.drawable.ic_add, palette.onAccent, 26),
+                LinearLayout.LayoutParams(dp(26), dp(26))
+            )
+            setOnClickListener { openPdf.launch(arrayOf("application/pdf")) }
+            Ui.pressable(this, 0.92f)
+        }
+        val libraryHolder = FrameLayout(this)
+        libraryHolder.addView(librarySwipe, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT
+        ))
+        libraryHolder.addView(openPdfButton, FrameLayout.LayoutParams(
+            dp(56), dp(56), Gravity.BOTTOM or Gravity.END
+        ).apply { setMargins(0, 0, dp(4), dp(12)) })
+        root.addView(libraryHolder, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f
         ))
         root.addView(createProgressPanel(dark), LinearLayout.LayoutParams(
@@ -561,11 +612,29 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         setBusy(if (preferences.getString(KEY_BOOK_FOLDER, null).isNullOrBlank()) "Finding recent books…" else "Scanning PDF folder…")
         worker.execute {
             val found = LinkedHashMap<String, Book>()
+            val folderTree = savedFolderUri()
+            // Recent entry address (as shown in the library) -> the address that was saved.
+            val recentOriginals = HashMap<String, Uri>()
             preferences.getStringSet(KEY_RECENT_BOOKS, emptySet()).orEmpty().forEach { value ->
                 if (generation != libraryScanGeneration) return@execute
                 try {
-                    val uri = Uri.parse(value)
-                    found[value] = Book(uri, preferences.getString(recentNameKey(uri), null) ?: displayName(uri))
+                    val original = Uri.parse(value)
+                    val stable = BookAccess.stableUri(this, original, folderTree)
+                    when (BookAccess.probe(this, stable)) {
+                        // Android took the permission back for good: drop the blank entry.
+                        BookAccess.Access.DENIED -> {
+                            forgetRecentBook(original)
+                            return@forEach
+                        }
+                        // Moved, deleted or on a card that is not mounted: hide it for now.
+                        BookAccess.Access.MISSING -> return@forEach
+                        BookAccess.Access.OK -> Unit
+                    }
+                    found[stable.toString()] = Book(
+                        stable,
+                        preferences.getString(recentNameKey(original), null) ?: displayName(stable)
+                    )
+                    recentOriginals[stable.toString()] = original
                 } catch (_: Exception) {
                     // Ignore recent entries that are no longer accessible.
                 }
@@ -591,12 +660,22 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             }
 
             if (generation != libraryScanGeneration) return@execute
+            // The same file can arrive twice (a recent copy plus the folder scan). Keep one.
+            val unique = BookAccess.dedupe(
+                found.values.toList(), { it.uri }, { it.name },
+                { uri -> try { DocumentFile.fromSingleUri(this, uri)?.length() ?: 0L } catch (_: Exception) { 0L } }
+            )
+            val removedDuplicates = unique.size != found.size
+            if (removedDuplicates) {
+                val kept = unique.map { it.uri.toString() }.toSet()
+                recentOriginals.forEach { (shown, original) -> if (shown !in kept) forgetRecentBook(original) }
+            }
             val field = preferences.getString("sort_field", "name") ?: "name"
             val descending = preferences.getBoolean("sort_descending", false)
             val comparator = if (field == "date") compareBy<Book> { modifiedFor(it.uri) }
                 else compareBy(String.CASE_INSENSITIVE_ORDER) { it.name }
-            val sorted = if (descending) found.values.sortedWith(comparator.reversed())
-                else found.values.sortedWith(comparator)
+            val sorted = if (descending) unique.sortedWith(comparator.reversed())
+                else unique.sortedWith(comparator)
             mainHandler.post {
                 if (generation != libraryScanGeneration) return@post
                 libraryScanRunning = false
@@ -607,7 +686,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                     return@post
                 }
                 books = sorted
-                if (sorted.isEmpty()) renderBookGrid() else reorderBookCards(sorted)
+                if (sorted.isEmpty() || removedDuplicates) renderBookGrid() else reorderBookCards(sorted)
                 if (::librarySwipe.isInitialized) librarySwipe.isRefreshing = false
                 clearBusy()
             }
@@ -653,16 +732,39 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private fun renderBookGrid() {
         if (!::libraryGrid.isInitialized || !showingLibrary) return
         libraryGrid.removeAllViews()
+        updateLibraryCount()
         if (books.isEmpty()) {
-            val dark = preferences.getString("app_theme", "system") == "dark"
+            val palette = Ui.palette(this)
             val bn = preferences.getString("app_language", "en") == "bn"
-            val empty = TextView(this).apply {
-                text = if (bn) "এখনো কোনো PDF পাওয়া যায়নি। সেটিংস থেকে PDF ফোল্ডার বেছে নিন, অথবা তালিকা রিফ্রেশ করতে নিচে টানুন।"
-                    else "No PDFs found. Choose a PDF folder in Settings, or pull down to refresh."
-                textSize = 15f
-                setTextColor(if (dark) Color.LTGRAY else Color.rgb(90, 103, 98))
-                gravity = Gravity.CENTER
-                setPadding(dp(24), dp(40), dp(24), dp(40))
+            val empty = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER_HORIZONTAL
+                setPadding(dp(24), dp(56), dp(24), dp(40))
+                addView(
+                    Ui.icon(this@MainActivity, R.drawable.ic_book, palette.accent, 56),
+                    LinearLayout.LayoutParams(dp(56), dp(56))
+                )
+                addView(
+                    Ui.text(this@MainActivity, if (bn) "এখনো কোনো বই নেই" else "No books yet", 18f, palette.text, bold = true)
+                        .apply { gravity = Gravity.CENTER },
+                    LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
+                    ).apply { topMargin = dp(16) }
+                )
+                addView(
+                    Ui.text(
+                        this@MainActivity,
+                        if (bn) "আপনার PDF ফোল্ডার বেছে নিন, অথবা নিচের + দিয়ে একটি PDF খুলুন।"
+                        else "Choose your PDF folder, or tap + to open a single PDF.",
+                        14f, palette.textMuted
+                    ).apply { gravity = Gravity.CENTER },
+                    LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
+                    ).apply { topMargin = dp(6); bottomMargin = dp(20) }
+                )
+                addView(Ui.primaryButton(
+                    this@MainActivity, palette, if (bn) "PDF ফোল্ডার বেছে নিন" else "Choose PDF folder"
+                ) { chooseBookFolder.launch(null) })
             }
             libraryGrid.addView(empty, GridLayout.LayoutParams().apply {
                 width = ViewGroup.LayoutParams.MATCH_PARENT
@@ -678,14 +780,22 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         if (!::libraryGrid.isInitialized || !showingLibrary) return
         if (books.size == 1) libraryGrid.removeAllViews()
         addBookCard(book)
+        updateLibraryCount()
+    }
+
+    private fun updateLibraryCount() {
+        if (!::libraryCount.isInitialized) return
+        val bn = preferences.getString("app_language", "en") == "bn"
+        libraryCount.text = when {
+            books.isEmpty() -> ""
+            bn -> "${books.size}টি বই"
+            books.size == 1 -> "1 book"
+            else -> "${books.size} books"
+        }
     }
 
     private fun addBookCard(book: Book) {
-        val darkCard = when (preferences.getString("app_theme", "system")) {
-            "dark" -> true
-            "light" -> false
-            else -> (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
-        }
+        val pal = Ui.palette(this)
         val listMode = preferences.getString("library_view", "grid") == "list"
         val gridColumns = if (listMode) 1 else preferences.getInt("grid_columns", 2).coerceIn(1, 10)
         val cardHorizontalPadding = if (listMode) 8 else when {
@@ -698,17 +808,14 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             tag = book.uri.toString()
             orientation = if (listMode) LinearLayout.HORIZONTAL else LinearLayout.VERTICAL
             setPadding(dp(cardHorizontalPadding), dp(cardVerticalPadding), dp(cardHorizontalPadding), dp(cardVerticalPadding))
-            background = GradientDrawable().apply {
-                setColor(if (darkCard) Color.rgb(39, 47, 44) else Color.WHITE)
-                cornerRadius = dp(10).toFloat()
-                setStroke(dp(1), if (darkCard) Color.rgb(70, 84, 78) else Color.rgb(225, 232, 229))
-            }
+            background = Ui.rippleShape(pal.surface, dp(14).toFloat(), pal.ripple, pal.outline, dp(1))
             elevation = dp(1).toFloat()
             isClickable = true
             isFocusable = true
             setOnClickListener { openBook(book) }
             setOnLongClickListener { showBookActions(book); true }
             contentDescription = "Open ${book.name}. Long press for more actions."
+            Ui.pressable(this, 0.97f)
         }
         val cover: ImageView = if (listMode) {
             ImageView(this)
@@ -731,7 +838,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             }
         }.apply {
             tag = book.uri.toString()
-            setBackgroundColor(Color.rgb(238, 242, 240))
+            setBackgroundColor(pal.surfaceAlt)
+            Ui.roundCorners(this, dp(8).toFloat())
             setImageResource(android.R.drawable.ic_menu_gallery)
             scaleType = ImageView.ScaleType.FIT_CENTER
             adjustViewBounds = false
@@ -748,7 +856,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 gridColumns >= 5 -> 11f
                 else -> 14f
             }
-            setTextColor(if (darkCard) Color.rgb(235, 242, 238) else Color.rgb(28, 43, 39))
+            setTextColor(pal.text)
             typeface = Typeface.DEFAULT_BOLD
             minLines = 2
             maxLines = 2
@@ -792,6 +900,9 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             })
         }
         loadCoverThumbnail(book, cover)
+        // Gentle staggered entrance for the first screenful of cards.
+        val position = libraryGrid.childCount - 1
+        if (position in 0..13) Ui.revealIn(card, position * 35L, dp(10).toFloat())
     }
 
     private fun reorderBookCards(sortedBooks: List<Book>) {
@@ -804,6 +915,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             libraryGrid.addView(card, card.layoutParams as GridLayout.LayoutParams)
             card.findViewWithTag<TextView>("book_title")?.text = book.name.removeSuffixIgnoreCase(".pdf")
         }
+        updateLibraryCount()
     }
 
     private fun loadCoverThumbnail(book: Book, image: ImageView) {
@@ -842,7 +954,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         }
     }
 
-    private fun openBook(book: Book, initialPage: Int = 0, password: String? = null) {
+    private fun openBook(requested: Book, initialPage: Int = 0, password: String? = null) {
+        val book = requested.copy(uri = BookAccess.stableUri(this, requested.uri, savedFolderUri()))
         activePdfPassword = password
         if (libraryScanRunning) {
             libraryScanGeneration++
@@ -870,8 +983,14 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         worker.execute {
             try {
                 closeCurrentRenderer()
-                val sourceDescriptor = contentResolver.openFileDescriptor(book.uri, "r")
-                    ?: throw IOException("Could not open this PDF.")
+                val opened = try {
+                    contentResolver.openFileDescriptor(book.uri, "r")
+                } catch (error: Exception) {
+                    // "Permission Denial: opening provider ..." is a missing grant, not a password.
+                    if (BookAccess.isPermissionFailure(error)) throw BookPermissionException(error)
+                    throw error
+                }
+                val sourceDescriptor = opened ?: throw IOException("Could not open this PDF.")
                 val fileSize = sourceDescriptor.statSize
                 if (fileSize > MAX_PDF_BYTES) {
                     sourceDescriptor.close()
@@ -939,8 +1058,13 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 activePdfPassword = null
                 runOnUiThread {
                     if (generation == readerGeneration && currentBook?.uri == book.uri && !showingLibrary) {
-                        if (error is SecurityException || error is InvalidPasswordException) {
+                        if (error is BookPermissionException) {
+                            showPermissionHelp(book)
+                        } else if (error is SecurityException || error is InvalidPasswordException) {
+                            // Only the PDF engine raises these once the file itself has opened.
                             requestPdfPassword(book, initialPage, incorrect = password != null)
+                        } else if (BookAccess.isPermissionFailure(error)) {
+                            showPermissionHelp(book)
                         } else {
                             Toast.makeText(this, "Could not open PDF: ${error.localizedMessage ?: "unknown error"}", Toast.LENGTH_LONG).show()
                         }
@@ -1164,7 +1288,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         readerPauseButton = playbackButton("▶", "Play or pause reading") {
             if (narrationPaused) resumeReaderNarration()
             else if (isNarrating) pauseReaderNarration()
-            else if (lastNarrationMode == "ocr") startOcrReadAloud() else startDeviceDefaultReadAloud()
+            else startReadAloud()
         }
         playbackButton("■", "Stop reading") {
             stopReaderNarration()
@@ -1287,28 +1411,26 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private fun createProgressPanel(dark: Boolean): LinearLayout {
         progressAnimator?.cancel()
         progressAnimator = null
+        val pal = Ui.palette(this)
         progressPanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(8), dp(6), dp(8), dp(6))
-            background = GradientDrawable().apply {
-                cornerRadius = dp(8).toFloat()
-                setColor(if (dark) Color.rgb(20, 28, 26) else Color.WHITE)
-            }
+            setPadding(dp(14), dp(10), dp(14), dp(10))
+            background = Ui.shape(pal.surface, dp(14).toFloat(), pal.outline, dp(1))
             visibility = View.GONE
         }
         progressLabel = TextView(this).apply {
             textSize = 12f
-            setTextColor(if (dark) Color.rgb(225, 239, 231) else Color.rgb(48, 75, 61))
+            setTextColor(pal.text)
             maxLines = 1
             ellipsize = android.text.TextUtils.TruncateAt.END
         }
         val track = GradientDrawable().apply {
             cornerRadius = dp(5).toFloat()
-            setColor(if (dark) Color.rgb(61, 79, 69) else Color.rgb(220, 231, 224))
+            setColor(pal.accentSoft)
         }
         val fill = GradientDrawable().apply {
             cornerRadius = dp(5).toFloat()
-            setColor(if (dark) Color.rgb(62, 224, 144) else Color.rgb(18, 135, 87))
+            setColor(pal.accent)
         }
         progressBar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
             max = 100
@@ -1699,10 +1821,9 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             }
         }
 
+        // One button: Settings → OCR decides how scanned pages are read.
         addAction(label("Read aloud", "পড়ে শোনান"),
-            { startDeviceDefaultReadAloud() }, { showSpeechSettings() })
-        addAction(label("Read aloud · Accurate OCR", "নির্ভুল OCR দিয়ে পড়ে শোনান"),
-            { startOcrReadAloud() }, { showSpeechSettings() })
+            { startReadAloud() }, { showSpeechSettings() })
         val pageJumpRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -2060,9 +2181,9 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         )
         val cacheHelp = TextView(this).apply {
             text = if (language) {
-                "OCR লেখার ক্যাশের সর্বোচ্চ আকার সাধারণ সেটিংসে বদলানো যাবে। ভাষার মডেল আলাদা থাকে।"
+                "OCR ইঞ্জিন, ভাষা ও লেখার ক্যাশের সর্বোচ্চ আকার সেটিংস → OCR-এ বদলানো যাবে। ভাষার মডেল আলাদা থাকে।"
             } else {
-                "Set the maximum OCR text-cache size in Settings. Downloaded language models use separate storage."
+                "Choose the OCR engine, languages and maximum text-cache size in Settings → OCR. Downloaded language models use separate storage."
             }
             textSize = 11f
             alpha = 0.78f
@@ -2070,7 +2191,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         }
         root.addView(cacheHelp)
         val ocrOptionsButton = Button(this).apply {
-            text = if (language) "OCR ভাষা ও ক্যাশের বিকল্প" else "OCR language and cache options"
+            text = if (language) "OCR সেটিংস" else "OCR settings"
             isAllCaps = false
             setOnClickListener { showOcrSettings() }
         }
@@ -2235,56 +2356,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     }
 
     private fun showOcrSettings() {
-        val language = preferences.getString("app_language", "en") == "bn"
-        val languages = arrayOf("ben+eng+ara", "ben", "eng", "ara", "ben+eng", "ben+ara", "eng+ara")
-        val labels = if (language) {
-            arrayOf(
-                "বাংলা + English + আরবি (ডিফল্ট)",
-                "শুধু বাংলা",
-                "শুধু English",
-                "শুধু আরবি",
-                "বাংলা + English",
-                "বাংলা + আরবি",
-                "English + আরবি"
-            )
-        } else {
-            arrayOf(
-                "Bengali + English + Arabic (default)",
-                "Bengali only",
-                "English only",
-                "Arabic only",
-                "Bengali + English",
-                "Bengali + Arabic",
-                "English + Arabic"
-            )
-        }
-        val current = preferences.getString("ocr_language", "ben+eng+ara") ?: "ben+eng+ara"
-        val selected = languages.indexOf(current).coerceAtLeast(0)
-        AlertDialog.Builder(this)
-            .setTitle(if (language) "OCR ভাষা" else "OCR language")
-            .setSingleChoiceItems(labels, selected) { dialog, which ->
-                preferences.edit().putString("ocr_language", languages[which]).apply()
-                readerOptionsPopup?.dismiss()
-                Toast.makeText(this, labels[which], Toast.LENGTH_SHORT).show()
-            }
-            .setNeutralButton(if (language) "OCR ক্যাশ মুছুন" else "Clear OCR cache") { _, _ ->
-                clearOcrCache()
-            }
-            .setNegativeButton(if (language) "বন্ধ" else "Close", null)
-            .show()
-    }
-
-    private fun clearOcrCache() {
-        setBusy("Refreshing OCR cache…")
-        worker.execute {
-            ocrCacheDirectory().deleteRecursively()
-            File(cacheDir, "ocr").deleteRecursively()
-            ocrTextCache.clear()
-            mainHandler.post {
-                clearBusy()
-                Toast.makeText(this, "OCR cache refreshed.", Toast.LENGTH_SHORT).show()
-            }
-        }
+        readerOptionsPopup?.dismiss()
+        startActivity(Intent(this, OcrSettingsActivity::class.java))
     }
 
     private fun showPage(index: Int) {
@@ -2411,7 +2484,9 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                     if (generation != readerGeneration || currentBook?.uri != book.uri || showingLibrary) return@post
                     clearBusy()
                     if (extracted.isBlank()) {
-                        toast("This page has no selectable text. For scanned pages, run Accurate OCR read-aloud first.")
+                        // A scanned page: read it with OCR so its text can be copied too.
+                        toast("No selectable text on this page. Scanning it with OCR…")
+                        scanPageForSelection(pageIndex)
                     } else {
                         pageTextCache[pageIndex] = extracted
                         if (currentPage == pageIndex) pageText = extracted
@@ -2429,7 +2504,51 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         }
     }
 
-    private fun displayPageTextSelectionDialog(pageIndex: Int, extracted: String) {
+    /** OCR text for one page, from the memory or disk cache when it is there. Runs off the main thread. */
+    private fun ocrPageText(uri: Uri, pageIndex: Int, language: String): String {
+        val cacheKey = ocrCacheKey(uri, pageIndex, language)
+        ocrTextCache[cacheKey]?.takeIf { it.isNotBlank() }?.let { return it }
+        val cacheFile = ocrCacheFile(uri, pageIndex, language)
+        val saved = if (cacheFile.isFile) cacheFile.readText(Charsets.UTF_8) else null
+        val text = saved?.takeIf { it.isNotBlank() } ?: recognizePdfPage(uri, pageIndex, language)
+        if (text.isNotBlank()) {
+            cacheFile.parentFile?.mkdirs()
+            cacheFile.writeText(text, Charsets.UTF_8)
+            cacheFile.setLastModified(System.currentTimeMillis())
+            enforceOcrCacheLimit(cacheFile)
+            ocrTextCache[cacheKey] = text
+        }
+        return text
+    }
+
+    /** Scans a page with OCR and opens the select-and-copy dialog with what it found. */
+    private fun scanPageForSelection(pageIndex: Int) {
+        val book = currentBook ?: return
+        if (pageIndex !in 0 until pageCount) return
+        val generation = readerGeneration
+        val language = OcrEngines.language(this)
+        setBusy("Scanning OCR page ${pageIndex + 1}…")
+        worker.execute {
+            try {
+                val text = ocrPageText(book.uri, pageIndex, language).trim()
+                mainHandler.post {
+                    if (generation != readerGeneration || currentBook?.uri != book.uri || showingLibrary) return@post
+                    clearBusy()
+                    if (text.isBlank()) toast("OCR could not find any text on this page.")
+                    else displayPageTextSelectionDialog(pageIndex, text, fromOcr = true)
+                }
+            } catch (error: Exception) {
+                mainHandler.post {
+                    if (generation == readerGeneration && currentBook?.uri == book.uri) {
+                        clearBusy()
+                        toast("OCR failed: ${error.localizedMessage ?: "check your connection and OCR language model"}")
+                    }
+                }
+            }
+        }
+    }
+
+    private fun displayPageTextSelectionDialog(pageIndex: Int, extracted: String, fromOcr: Boolean = false) {
         val dark = preferences.getString("app_theme", "system") == "dark"
         val textView = TextView(this).apply {
             text = extracted
@@ -2456,15 +2575,20 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             text = "Define in browser"
             isAllCaps = false
         }
+        val ocrButton = Button(this).apply {
+            text = "Scan page with OCR (scanned or garbled text)"
+            isAllCaps = false
+        }
         val selectionContent = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             addView(scroll, LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(360)
             ))
             addView(defineButton, matchWrap())
+            if (!fromOcr) addView(ocrButton, matchWrap())
         }
         val dialog = AlertDialog.Builder(this)
-            .setTitle("Select text · Page ${pageIndex + 1}")
+            .setTitle(if (fromOcr) "Scanned text (OCR) · Page ${pageIndex + 1}" else "Select text · Page ${pageIndex + 1}")
             .setView(selectionContent)
             .setNegativeButton("Back", null)
             .setNeutralButton("Copy", null)
@@ -2473,6 +2597,10 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         dialog.setOnShowListener {
             dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener {
                 dialog.dismiss()
+            }
+            ocrButton.setOnClickListener {
+                dialog.dismiss()
+                scanPageForSelection(pageIndex)
             }
             defineButton.setOnClickListener {
                 val selected = selectedText().take(500)
@@ -2537,7 +2665,105 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     }
 
     private fun readCurrentPage() {
-        startDeviceDefaultReadAloud()
+        startReadAloud()
+    }
+
+    /**
+     * The single Read aloud entry point. The engine chosen in Settings → OCR decides the path:
+     * Kontho OCR when it is downloaded; the phone default (text already in the PDF) otherwise.
+     * Offline without Kontho OCR the phone default is used; online, the download is offered.
+     */
+    private fun startReadAloud() {
+        if (pageCount <= 0 || currentBook == null) {
+            toast("Open a PDF first.")
+            return
+        }
+        when (OcrEngines.plan(this)) {
+            OcrEngines.Plan.USE_KONTHO -> startOcrReadAloud()
+            OcrEngines.Plan.USE_DEVICE -> startDeviceDefaultReadAloud()
+            OcrEngines.Plan.USE_DEVICE_OFFLINE -> {
+                if (!offlineOcrNoticeShown) {
+                    offlineOcrNoticeShown = true
+                    toast(
+                        if (isBanglaUi()) "ইন্টারনেট নেই, তাই ফোনের ডিফল্ট ব্যবহার হচ্ছে। অনলাইনে এলে আরও ভালো OCR ডাউনলোড করতে পারবেন।"
+                        else "You are offline, so the phone default is used. Download the better OCR when you are online."
+                    )
+                }
+                startDeviceDefaultReadAloud()
+            }
+            OcrEngines.Plan.OFFER_DOWNLOAD -> offerBetterOcrDownload { startDeviceDefaultReadAloud() }
+        }
+    }
+
+    private fun isBanglaUi() = preferences.getString("app_language", "en") == "bn"
+
+    private fun ocrDownloadSizeText(): String {
+        val mb = (OcrModels.downloadBytes(OcrEngines.languages(this)) + 512L * 1024L) / (1024L * 1024L)
+        return "$mb MB"
+    }
+
+    /** Asks (once per tap) whether to download Kontho OCR; [onSkip] runs when the person says no. */
+    private fun offerBetterOcrDownload(onSkip: () -> Unit) {
+        val bn = isBanglaUi()
+        val size = ocrDownloadSizeText()
+        AlertDialog.Builder(this)
+            .setTitle(if (bn) "আরও ভালো OCR ডাউনলোড করবেন?" else "Download the better OCR?")
+            .setMessage(
+                if (bn) "কণ্ঠ OCR স্ক্যান করা পৃষ্ঠা বাংলা, English ও আরবিতে পড়তে পারে। এটি একবারের ছোট ডাউনলোড (প্রায় $size), এরপর অফলাইনেই চলে।"
+                else "Kontho OCR reads scanned pages in Bangla, English and Arabic. It is a small one-time download (about $size) and then works offline."
+            )
+            .setPositiveButton(if (bn) "ডাউনলোড" else "Download") { _, _ -> downloadOcrThenRead(onSkip) }
+            .setNegativeButton(if (bn) "ফোনের ডিফল্ট ব্যবহার করুন" else "Use phone default") { _, _ -> onSkip() }
+            .setNeutralButton(if (bn) "আর জিজ্ঞেস করবেন না" else "Don't ask again") { _, _ ->
+                OcrEngines.setStopAsking(this, true)
+                onSkip()
+            }
+            .setOnCancelListener { onSkip() }
+            .show()
+    }
+
+    private fun downloadOcrThenRead(onFailure: () -> Unit) {
+        val uri = currentBook?.uri ?: return
+        val generation = readerGeneration
+        val languages = OcrEngines.language(this).split('+')
+        setBusy("Downloading OCR…", 0)
+        worker.execute {
+            try {
+                OcrModels.ensure(this, languages) { label, percent -> setBusy(label, percent) }
+                mainHandler.post {
+                    clearBusy()
+                    if (generation == readerGeneration && currentBook?.uri == uri && !showingLibrary) startOcrReadAloud()
+                }
+            } catch (error: Exception) {
+                mainHandler.post {
+                    clearBusy()
+                    if (generation == readerGeneration && currentBook?.uri == uri && !showingLibrary) {
+                        toast("Could not download OCR: ${error.localizedMessage ?: "unknown error"}. Using the phone default.")
+                        onFailure()
+                    }
+                }
+            }
+        }
+    }
+
+    /** The phone default found no text on a scanned page: use Kontho OCR if it is there, else offer it. */
+    private fun handleScannedPageWithoutOcr(pageIndex: Int) {
+        val languages = OcrEngines.languages(this)
+        val stay = {
+            toast(
+                if (isBanglaUi()) "এই পৃষ্ঠায় নির্বাচনযোগ্য লেখা নেই। স্ক্যান পড়তে সেটিংস → OCR থেকে কণ্ঠ OCR ডাউনলোড করুন।"
+                else "No selectable text on this page. Download Kontho OCR in Settings → OCR to read scanned pages."
+            )
+            showReaderOverlays()
+        }
+        when {
+            OcrModels.isInstalled(this, languages) -> {
+                toast(if (isBanglaUi()) "স্ক্যান করা পৃষ্ঠা, কণ্ঠ OCR দিয়ে পড়া হচ্ছে।" else "Scanned page: reading it with Kontho OCR.")
+                startOcrReadAloud(pageIndex)
+            }
+            OcrEngines.isOnline(this) && !OcrEngines.stopAsking(this) -> offerBetterOcrDownload(stay)
+            else -> stay()
+        }
     }
 
     private fun startDeviceDefaultReadAloud() {
@@ -2590,7 +2816,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         updateReadingPosition(requestedPage, false)
         val generation = readerGeneration
         val uri = currentBook?.uri ?: return
-        val language = preferences.getString("ocr_language", "ben+eng+ara") ?: "ben+eng+ara"
+        val language = OcrEngines.language(this)
         val cacheKey = ocrCacheKey(uri, requestedPage, language)
         val inMemory = ocrTextCache[cacheKey]
         if (inMemory != null) {
@@ -2767,168 +2993,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private fun countOcrCharacters(text: String): Int =
         text.count { it.isLetterOrDigit() }
 
-    private fun ensureOcrModels(language: String): File {
-        val requestedLanguages = language.split('+')
-        val languages = requestedLanguages.distinct()
-        val supportedLanguages = setOf("ben", "eng", "ara")
-        if (languages.isEmpty() || languages.size != requestedLanguages.size ||
-            languages.any { it !in supportedLanguages }
-        ) {
-            throw IOException("The selected OCR language combination is not supported.")
-        }
-
-        // Keep the higher-accuracy models for Bangla and Arabic. English-only
-        // recognition keeps the smaller, faster model.
-        val preferHighAccuracy = languages.any { it == "ben" || it == "ara" }
-        val repository = if (preferHighAccuracy) "tessdata_best" else "tessdata_fast"
-        val dataRoot = when {
-            "ben" in languages -> File(filesDir, "tesseract_bengali_best")
-            "ara" in languages -> File(filesDir, "tesseract_arabic_best")
-            else -> File(filesDir, "tesseract")
-        }
-
-        try {
-            downloadOcrModels(dataRoot, languages, repository)
-            return dataRoot
-        } catch (error: Exception) {
-            // Preserve offline access when all selected fast models are already cached.
-            val fastRoot = File(filesDir, "tesseract")
-            val cachedFastModelsAvailable = languages.all { code ->
-                val model = File(fastRoot, "tessdata/$code.traineddata")
-                isVerifiedOcrModel(model, ocrModelIntegrity("tessdata_fast", code))
-            }
-            if (preferHighAccuracy && cachedFastModelsAvailable) return fastRoot
-            throw error
-        }
-    }
-
-    private fun ocrModelIntegrity(repository: String, code: String): OcrModelIntegrity {
-        return when ("$repository/$code") {
-            "tessdata_best/ben" -> OcrModelIntegrity(
-                "tessdata_best", "e12c65a915945e4c28e237a9b52bc4a8f39a0cec",
-                11_045_427L, "b16a79b0bf5a66e70a0f73165ed0eb92c688ee20"
-            )
-            "tessdata_best/eng" -> OcrModelIntegrity(
-                "tessdata_best", "e12c65a915945e4c28e237a9b52bc4a8f39a0cec",
-                15_400_601L, "176dc3220de7db34d3b3aecbfa42043a6038348b"
-            )
-            "tessdata_best/ara" -> OcrModelIntegrity(
-                "tessdata_best", "e12c65a915945e4c28e237a9b52bc4a8f39a0cec",
-                12_603_724L, "4b687c7d54c86cf6219aebe781b47284fd5d41f0"
-            )
-            "tessdata_fast/ben" -> OcrModelIntegrity(
-                "tessdata_fast", "87416418657359cb625c412a48b6e1d6d41c29bd",
-                855_841L, "7e9054d1de309714009a85555f5276168d41af9c"
-            )
-            "tessdata_fast/eng" -> OcrModelIntegrity(
-                "tessdata_fast", "87416418657359cb625c412a48b6e1d6d41c29bd",
-                4_113_088L, "bbef4675053b5b468cdb477053e28b1c698ba08e"
-            )
-            "tessdata_fast/ara" -> OcrModelIntegrity(
-                "tessdata_fast", "87416418657359cb625c412a48b6e1d6d41c29bd",
-                1_432_056L, "c8d129c67821c1592cac46836686b057ecc203dc"
-            )
-            else -> throw IOException("No trusted OCR model is configured for $repository/$code.")
-        }
-    }
-
-    private fun isVerifiedOcrModel(file: File, spec: OcrModelIntegrity): Boolean {
-        if (!file.isFile || file.length() != spec.expectedSize) {
-            verifiedOcrModels.remove(file.absolutePath)
-            return false
-        }
-        if (verifiedOcrModels.contains(file.absolutePath)) return true
-
-        val digest = MessageDigest.getInstance("SHA-1")
-        digest.update("blob ${spec.expectedSize}\u0000".toByteArray(Charsets.US_ASCII))
-        FileInputStream(file).use { input ->
-            val buffer = ByteArray(64 * 1024)
-            while (true) {
-                val count = input.read(buffer)
-                if (count < 0) break
-                digest.update(buffer, 0, count)
-            }
-        }
-        val actual = digest.digest().joinToString("") { byte ->
-            "%02x".format(byte.toInt() and 0xff)
-        }
-        val verified = actual.equals(spec.gitBlobSha1, ignoreCase = true)
-        if (verified) verifiedOcrModels.add(file.absolutePath)
-        return verified
-    }
-
-    private fun downloadOcrModels(dataRoot: File, languages: List<String>, repository: String) {
-        val tessdata = File(dataRoot, "tessdata")
-        if (!tessdata.exists() && !tessdata.mkdirs()) {
-            throw IOException("Cannot create the OCR model folder.")
-        }
-        for (code in languages) {
-            val spec = ocrModelIntegrity(repository, code)
-            val model = File(tessdata, "$code.traineddata")
-            if (isVerifiedOcrModel(model, spec)) continue
-
-            val partial = File(tessdata, "$code.traineddata.part")
-            if (partial.exists() && !partial.delete()) {
-                throw IOException("Could not clear an incomplete OCR model download.")
-            }
-            val url = URL(
-                "https://raw.githubusercontent.com/tesseract-ocr/${spec.repository}/${spec.revision}/$code.traineddata"
-            )
-            val connection = (url.openConnection() as HttpURLConnection).apply {
-                connectTimeout = 15_000
-                readTimeout = 90_000
-                requestMethod = "GET"
-            }
-            try {
-                connection.connect()
-                if (connection.responseCode != HttpURLConnection.HTTP_OK) {
-                    throw IOException("OCR model download returned HTTP ${connection.responseCode}.")
-                }
-                val contentLength = connection.contentLengthLong
-                if (contentLength >= 0L && contentLength != spec.expectedSize) {
-                    throw IOException("The OCR model size did not match the trusted version.")
-                }
-                setBusy("Downloading OCR model: $code…")
-                var copied = 0L
-                var lastUpdate = 0L
-                connection.inputStream.use { input ->
-                    FileOutputStream(partial).use { output ->
-                        val buffer = ByteArray(64 * 1024)
-                        while (true) {
-                            val count = input.read(buffer)
-                            if (count < 0) break
-                            copied += count
-                            if (copied > spec.expectedSize) {
-                                throw IOException("The OCR model exceeded its expected download size.")
-                            }
-                            output.write(buffer, 0, count)
-                            if (copied - lastUpdate >= 256 * 1024) {
-                                lastUpdate = copied
-                                setBusy(
-                                    "Downloading OCR model: $code…",
-                                    (copied * 100L / spec.expectedSize).toInt()
-                                )
-                            }
-                        }
-                    }
-                }
-                if (copied != spec.expectedSize || !isVerifiedOcrModel(partial, spec)) {
-                    throw IOException("The downloaded OCR model failed its integrity check.")
-                }
-                if (model.exists() && !model.delete()) {
-                    throw IOException("Could not replace the OCR model.")
-                }
-                if (!partial.renameTo(model)) throw IOException("Could not save OCR model.")
-                verifiedOcrModels.remove(partial.absolutePath)
-                verifiedOcrModels.add(model.absolutePath)
-            } catch (error: Exception) {
-                partial.delete()
-                throw error
-            } finally {
-                connection.disconnect()
-            }
-        }
-    }
+    private fun ensureOcrModels(language: String): File =
+        OcrModels.ensure(this, language.split('+')) { label, percent -> setBusy(label, percent) }
 
     private fun cleanNarrationPageText(text: String): String {
         val lines = text.lines().map { it.trim() }.toMutableList()
@@ -2984,10 +3050,31 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         if (narrationText.isBlank()) {
             if (mode == "ocr") continuousNarrationSession = false
             clearBusy()
-            toast(if (mode == "ocr") "OCR found no readable text on this page." else "No selectable text on this page. Try Read aloud · Accurate OCR.")
-            showReaderOverlays()
+            if (mode == "ocr") {
+                toast("OCR found no readable text on this page.")
+                showReaderOverlays()
+            } else {
+                handleScannedPageWithoutOcr(pageIndex)
+            }
             return
         }
+        // Better voices (MMS offline, Azure online) are used for Bangla text when the person chose
+        // one and it is set up. Anything else falls back to Android's own speech engine below.
+        val chosenEngine = VoiceEngines.selected(this)
+        if (chosenEngine != VoiceEngines.SYSTEM && VoiceEngines.hasBangla(narrationText)) {
+            if (VoiceEngines.isReady(this, chosenEngine)) {
+                startNeuralNarration(narrationText, pageIndex, mode)
+                return
+            }
+            noticeDeviceVoiceFallback(
+                if (chosenEngine == VoiceEngines.MMS) {
+                    "The offline Bangla voice is not downloaded yet, so the device voice is used. Open Settings → Voice."
+                } else {
+                    "No Azure key is saved yet, so the device voice is used. Open Settings → Voice."
+                }
+            )
+        }
+        neuralActive = false
         if (!ttsReady) {
             if (mode == "ocr") continuousNarrationSession = false
             clearBusy()
@@ -3011,7 +3098,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         val hasArabicCharacters = arabicCharacterCount > 0
         val preferredLocale = if (mode == "ocr") {
             val selectedLanguages =
-                (preferences.getString("ocr_language", "ben+eng+ara") ?: "ben+eng+ara").split('+')
+                OcrEngines.language(this).split('+')
             when {
                 selectedLanguages == listOf("ben") -> Locale("bn", "BD")
                 selectedLanguages == listOf("eng") -> Locale.ENGLISH
@@ -3071,7 +3158,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         queueNarrationSegments(0)
         if (mode == "ocr") {
             val uri = currentBook?.uri
-            val language = preferences.getString("ocr_language", "ben+eng+ara") ?: "ben+eng+ara"
+            val language = OcrEngines.language(this)
             if (uri != null) prefetchNextOcrPage(pageIndex, uri, language)
         }
         clearBusy()
@@ -3099,7 +3186,107 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         }
     }
 
+    /** Read the current page with the chosen MMS/Azure voice. Mirrors the system-voice path above. */
+    private fun startNeuralNarration(narrationText: String, pageIndex: Int, mode: String) {
+        val segments = splitNarrationText(narrationText)
+        if (segments.isEmpty()) {
+            if (mode == "ocr") continuousNarrationSession = false
+            clearBusy()
+            toast("No readable text was found on this page.")
+            return
+        }
+        tts?.stop()
+        neuralActive = true
+        lastNarrationMode = mode
+        narrationPageIndex = pageIndex
+        updateReadingPosition(pageIndex, pageIndex != currentPage)
+        narrationSegments = segments
+        narrationCurrentSegmentIndex = 0
+        narrationPaused = false
+        isNarrating = true
+        speakNeural(0)
+        if (mode == "ocr") {
+            val uri = currentBook?.uri
+            val language = OcrEngines.language(this)
+            if (uri != null) prefetchNextOcrPage(pageIndex, uri, language)
+        }
+        clearBusy()
+        showReaderOverlays()
+    }
+
+    private fun speakNeural(startIndex: Int) {
+        val speaker = VoiceRuntime.speaker(this, VoiceEngines.selected(this))
+        if (speaker == null || narrationSegments.isEmpty() || startIndex !in narrationSegments.indices) {
+            isNarrating = false
+            narrationPaused = false
+            showReaderOverlays()
+            return
+        }
+        val rate = preferences.getFloat("narration_rate", 0.85f).coerceIn(0.5f, 1.5f)
+        speaker.speak(narrationSegments, startIndex, rate, object : SegmentSpeaker.Callback {
+            override fun onSegmentStarted(index: Int) {
+                narrationCurrentSegmentIndex = index
+                if (!narrationPaused) isNarrating = true
+                if (::readerPauseButton.isInitialized) {
+                    readerPauseButton.text = if (isNarrating && !narrationPaused) "Ⅱ" else "▶"
+                }
+            }
+
+            override fun onFinished() {
+                handleNarrationFinished()
+            }
+
+            override fun onError(message: String) {
+                // A voice can fail part-way through a page: no signal, the free Azure quota used up,
+                // not enough memory for the offline model. Carry on with the device voice from the
+                // same paragraph instead of going silent.
+                if (ttsReady && tts != null && narrationSegments.isNotEmpty()) {
+                    noticeDeviceVoiceFallback("${message.trimEnd('.', ' ')}. Using the device voice instead.")
+                    neuralActive = false
+                    queueNarrationSegments(narrationCurrentSegmentIndex.coerceIn(0, narrationSegments.lastIndex))
+                    return
+                }
+                stopReaderNarration()
+                toast(message)
+                showReaderOverlays()
+            }
+
+            override fun onInterrupted() {
+                pauseReaderNarration()
+            }
+        })
+    }
+
+    private fun noticeDeviceVoiceFallback(message: String) {
+        if (neuralFallbackNotified) return
+        neuralFallbackNotified = true
+        toast(message)
+    }
+
+    /** The last paragraph of the page has been spoken: move on to the next page or stop. */
+    private fun handleNarrationFinished() {
+        val nextPage = narrationPageIndex + 1
+        val continueToNext = lastNarrationMode == "ocr" &&
+            preferences.getBoolean("ocr_continue_next_page", true) &&
+            nextPage in 0 until pageCount && currentBook != null
+        isNarrating = false
+        narrationPaused = false
+        lastNarrationUtteranceId = null
+        if (::readerPauseButton.isInitialized) readerPauseButton.text = "▶"
+        if (continueToNext) {
+            startOcrReadAloud(nextPage, continueRun = true)
+        } else {
+            continuousNarrationSession = false
+            showReaderOverlays()
+        }
+    }
+
     private fun queueNarrationSegments(startIndex: Int) {
+        if (neuralActive) {
+            speakNeural(startIndex)
+            return
+        }
+        VoiceRuntime.stopAll()
         val speech = tts ?: return
         if (narrationSegments.isEmpty() || startIndex !in narrationSegments.indices) {
             isNarrating = false
@@ -3138,6 +3325,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         isNarrating = false
         // Android TTS has no universal pause API; resume repeats the current paragraph.
         tts?.stop()
+        VoiceRuntime.stopAll()
         showReaderOverlays()
     }
 
@@ -3160,6 +3348,9 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
     private fun stopReaderNarration() {
         tts?.stop()
+        VoiceRuntime.stopAll()
+        neuralActive = false
+        neuralFallbackNotified = false
         isNarrating = false
         narrationPaused = false
         continuousNarrationSession = false
@@ -3210,20 +3401,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                     if (utteranceId != null && utteranceId == lastNarrationUtteranceId) {
                         mainHandler.post {
                             if (utteranceId != lastNarrationUtteranceId) return@post
-                            val nextPage = narrationPageIndex + 1
-                            val continueToNext = lastNarrationMode == "ocr" &&
-                                preferences.getBoolean("ocr_continue_next_page", true) &&
-                                nextPage in 0 until pageCount && currentBook != null
-                            isNarrating = false
-                            narrationPaused = false
-                            lastNarrationUtteranceId = null
-                            if (::readerPauseButton.isInitialized) readerPauseButton.text = "▶"
-                            if (continueToNext) {
-                                startOcrReadAloud(nextPage, continueRun = true)
-                            } else {
-                                continuousNarrationSession = false
-                                showReaderOverlays()
-                            }
+                            handleNarrationFinished()
                         }
                     }
                 }
@@ -3495,6 +3673,39 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         }
     }
 
+    /** Android has not let Kontho read this file. Say so plainly and offer ways to grant access. */
+    private fun showPermissionHelp(book: Book, allowStoragePrompt: Boolean = true) {
+        if (isFinishing || isDestroyed) return
+        // Very old apps hand over a plain file path; Android 10 and older need the storage permission for it.
+        if (allowStoragePrompt && book.uri.scheme == "file" && Build.VERSION.SDK_INT <= Build.VERSION_CODES.Q &&
+            checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED
+        ) {
+            pendingPermissionBook = book
+            requestStoragePermission.launch(Manifest.permission.READ_EXTERNAL_STORAGE)
+            return
+        }
+        // Leave the empty reader and drop the dead entry so it cannot show up again as a blank book.
+        showLibrary()
+        refreshLibrary()
+        forgetRecentBook(book.uri)
+        val bn = isBanglaUi()
+        AlertDialog.Builder(this)
+            .setTitle(if (bn) "কণ্ঠ এই PDF পড়তে পারছে না" else "Kontho can't read this PDF")
+            .setMessage(
+                if (bn) "Android এই ফাইলটি পড়ার অনুমতি দেয়নি। এটি অন্য অ্যাপ থেকে খোলা হলে অনুমতির মেয়াদ শেষ হয়ে যেতে পারে। এটি পাসওয়ার্ড দেওয়া PDF নয়। ফাইলটি আবার বেছে নিন, অথবা আপনার PDF ফোল্ডার বেছে নিন।"
+                else "Android did not give Kontho permission to read this file. This can happen when a file was opened from another app and its permission expired. It is not a password problem. Choose the file again, or choose the folder where your PDFs are."
+            )
+            .setPositiveButton(if (bn) "ফাইল বেছে নিন" else "Choose the file") { _, _ ->
+                rePickHint = book.uri
+                rePickPdf.launch(arrayOf("application/pdf"))
+            }
+            .setNeutralButton(if (bn) "ফোল্ডার বেছে নিন" else "Choose PDF folder") { _, _ ->
+                chooseBookFolder.launch(null)
+            }
+            .setNegativeButton(if (bn) "বাতিল" else "Cancel", null)
+            .show()
+    }
+
     private fun requestPdfPassword(book: Book, initialPage: Int, incorrect: Boolean) {
         if (isFinishing || isDestroyed || showingLibrary || currentBook?.uri != book.uri) return
 
@@ -3587,6 +3798,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         tts?.stop()
         tts?.shutdown()
+        if (isFinishing) VoiceRuntime.releaseAll() else VoiceRuntime.stopAll()
         releaseReaderBitmaps()
         worker.execute { closeCurrentRenderer() }
         worker.shutdown()

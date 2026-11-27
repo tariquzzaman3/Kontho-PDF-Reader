@@ -29,6 +29,7 @@ class SettingsActivity : ComponentActivity() {
     private val prefs by lazy { getSharedPreferences("kontho_library", MODE_PRIVATE) }
     private var firstRun = false
     private var setupStep = 0
+    private var mainShown = false
 
     private val chooseBooks = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) {
@@ -101,13 +102,13 @@ class SettingsActivity : ComponentActivity() {
             else -> (resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
         }
         setTheme(if (dark) android.R.style.Theme_Material_NoActionBar else android.R.style.Theme_Material_Light_NoActionBar)
-        val screenBackground = if (dark) Color.rgb(22, 29, 27) else Color.rgb(248, 250, 249)
-        val foreground = if (dark) Color.WHITE else Color.rgb(27, 48, 42)
-        val muted = if (dark) Color.rgb(187, 201, 195) else Color.rgb(99, 117, 109)
-        val accent = Color.rgb(18, 104, 84)
+        val pal = Ui.palette(this)
+        val screenBackground = pal.background
+        val foreground = pal.text
+        val muted = pal.textMuted
+        val accent = pal.accent
 
-        window.statusBarColor = Color.rgb(112, 119, 116)
-        window.navigationBarColor = window.statusBarColor
+        Ui.applySystemBars(window, pal)
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -181,12 +182,8 @@ class SettingsActivity : ComponentActivity() {
 
         fun cardBackground(selected: Boolean) = GradientDrawable().apply {
             cornerRadius = dp(16).toFloat()
-            setColor(if (selected) {
-                if (dark) Color.rgb(32, 67, 57) else Color.rgb(224, 242, 235)
-            } else {
-                if (dark) Color.rgb(37, 45, 42) else Color.WHITE
-            })
-            setStroke(dp(if (selected) 2 else 1), if (selected) accent else if (dark) Color.rgb(70, 83, 77) else Color.rgb(222, 230, 226))
+            setColor(if (selected) pal.accentSoft else pal.surface)
+            setStroke(dp(if (selected) 2 else 1), if (selected) accent else pal.outline)
         }
 
         fun choiceCard(symbol: String, title: String, selected: Boolean, action: () -> Unit): LinearLayout {
@@ -382,43 +379,48 @@ class SettingsActivity : ComponentActivity() {
 
     private fun label(en: String, bn: String): String = if (prefs.getString("app_language", "en") == "bn") bn else en
 
+    override fun onResume() {
+        super.onResume()
+        // Summaries (voice, OCR) can change in their own screens.
+        if (mainShown) render()
+    }
+
     private fun render() {
+        mainShown = true
         val lang = prefs.getString("app_language", "en") ?: "en"
         val dark = when (prefs.getString("app_theme", "system")) {
             "dark" -> true
             "light" -> false
             else -> (resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
         }
-        window.statusBarColor = Color.rgb(112, 119, 116)
-        window.navigationBarColor = window.statusBarColor
-        WindowCompat.setDecorFitsSystemWindows(window, false)
-        WindowInsetsControllerCompat(window, window.decorView).isAppearanceLightStatusBars = false
+        val pal = Ui.palette(this)
+        Ui.edgeToEdge(window)
+        Ui.applySystemBars(window, pal)
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(24), dp(20), dp(24), dp(20))
-            setBackgroundColor(if (dark) Color.rgb(25, 31, 29) else Color.rgb(248, 250, 249))
+            setPadding(dp(20), dp(16), dp(20), dp(16))
+            setBackgroundColor(pal.background)
         }
         val title = TextView(this).apply {
             text = label("Settings", "সেটিংস")
             textSize = 26f
-            setTextColor(if (dark) Color.WHITE else Color.rgb(18, 76, 66))
-            setPadding(0, 0, 0, 12)
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(pal.text)
+            setPadding(dp(2), 0, 0, dp(8))
         }
         root.addView(title)
         val scroll = android.widget.ScrollView(this)
         val options = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         scroll.addView(options)
-        val foreground = if (dark) Color.rgb(244, 248, 246) else Color.rgb(27, 48, 42)
-        val muted = if (dark) Color.rgb(174, 190, 182) else Color.rgb(101, 119, 111)
-        val cardSurface = if (dark) Color.rgb(35, 44, 40) else Color.WHITE
-        val cardStroke = if (dark) Color.rgb(58, 72, 65) else Color.rgb(225, 233, 229)
-        val accent = Color.rgb(18, 104, 84)
+        val foreground = pal.text
+        val muted = pal.textMuted
+        val accent = pal.accent
 
-        fun cardBackground() = GradientDrawable().apply {
-            shape = GradientDrawable.RECTANGLE
-            cornerRadius = dp(16).toFloat()
-            setColor(cardSurface)
-            setStroke(dp(1), cardStroke)
+        fun cardBackground(): android.graphics.drawable.Drawable =
+            Ui.rippleShape(pal.surface, dp(16).toFloat(), pal.ripple, pal.outline, dp(1))
+
+        fun reveal(card: View) {
+            Ui.revealIn(card, minOf(options.childCount, 12) * 28L, dp(8).toFloat())
         }
 
         fun addSection(sectionTitle: String) {
@@ -427,8 +429,8 @@ class SettingsActivity : ComponentActivity() {
                 textSize = 12f
                 letterSpacing = 0.08f
                 typeface = Typeface.DEFAULT_BOLD
-                setTextColor(if (dark) Color.rgb(142, 198, 177) else accent)
-                setPadding(dp(2), dp(15), 0, dp(8))
+                setTextColor(accent)
+                setPadding(dp(2), dp(18), 0, dp(8))
             }
             options.addView(heading, LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
@@ -476,9 +478,11 @@ class SettingsActivity : ComponentActivity() {
             }
             card.addView(textColumn, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             card.addView(arrow, LinearLayout.LayoutParams(dp(24), ViewGroup.LayoutParams.WRAP_CONTENT))
+            reveal(card)
             options.addView(card, LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
             ).apply { bottomMargin = dp(8) })
+            Ui.pressable(card, 0.985f)
         }
 
         fun addToggleRow(titleText: String, summary: String, checked: Boolean, onChanged: (Boolean) -> Unit) {
@@ -516,9 +520,11 @@ class SettingsActivity : ComponentActivity() {
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
             ).apply { marginStart = dp(8) })
             card.setOnClickListener { toggle.isChecked = !toggle.isChecked }
+            reveal(card)
             options.addView(card, LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
             ).apply { bottomMargin = dp(8) })
+            Ui.pressable(card, 0.985f)
         }
 
         addSection(label("GENERAL", "সাধারণ"))
@@ -631,58 +637,29 @@ class SettingsActivity : ComponentActivity() {
         }
 
         addRow(
-            label("Bangla speech voice & engine", "বাংলা কণ্ঠ ও TTS ইঞ্জিন"),
-            label(
-                "Install Bangla voice data or change the Android speech engine",
-                "বাংলা ভয়েস ডেটা ইনস্টল করুন বা Android-এর TTS ইঞ্জিন বদলান"
-            )
+            label("Reading voice", "পাঠের কণ্ঠ"),
+            VoiceEngines.title(this, VoiceEngines.selected(this)) + " · " +
+                label("Azure, offline MMS or device voice", "Azure, অফলাইন MMS বা ডিভাইসের কণ্ঠ")
         ) {
-            try {
-                startActivity(Intent("com.android.settings.TTS_SETTINGS"))
-            } catch (_: Exception) {
-                try {
-                    startActivity(Intent(android.provider.Settings.ACTION_SETTINGS))
-                } catch (_: Exception) {
-                    Toast.makeText(
-                        this,
-                        label("Open Android Settings and search for Text-to-speech output.", "Android Settings-এ Text-to-speech output খুঁজুন।"),
-                        Toast.LENGTH_LONG
-                    ).show()
-                }
-            }
+            startActivity(Intent(this, VoiceSettingsActivity::class.java))
         }
 
-        val cacheLimitChoices = intArrayOf(10, 25, 50, 100, 250, 500, 0)
-        val cacheLimitLabels = arrayOf(
-            "10 MB", "25 MB", "50 MB", "100 MB", "250 MB", "500 MB",
-            label("No limit", "সীমাহীন")
-        )
-        val savedCacheLimit = prefs.getInt("ocr_cache_limit_mb", 50)
-        val selectedCacheLimit = cacheLimitChoices.indexOf(savedCacheLimit).let { if (it >= 0) it else 2 }
-        val cachedOcrBytes = ocrCacheUsageBytes()
-        val cacheUsageLabel = if (cachedOcrBytes < 1024L * 1024L) {
-            "${(cachedOcrBytes / 1024L).coerceAtLeast(0)} KB"
+        val ocrEngine = OcrEngines.selected(this)
+        val ocrReady = OcrModels.isInstalled(this, OcrEngines.languages(this))
+        val ocrSummary = if (ocrEngine == OcrEngines.KONTHO) {
+            OcrEngines.title(this, ocrEngine) + " · " + if (ocrReady) {
+                label("Bangla, English, Arabic · downloaded", "বাংলা, English, আরবি · ডাউনলোড করা")
+            } else {
+                label("Not downloaded yet", "এখনও ডাউনলোড হয়নি")
+            }
         } else {
-            "${cachedOcrBytes / (1024L * 1024L)} MB"
+            OcrEngines.title(this, ocrEngine)
         }
-        val cacheLimitSummary = if (savedCacheLimit <= 0) {
-            label("$cacheUsageLabel used · No limit", "$cacheUsageLabel ব্যবহৃত · সীমাহীন")
-        } else {
-            label("$cacheUsageLabel used of $savedCacheLimit MB", "$savedCacheLimit MB-এর মধ্যে $cacheUsageLabel ব্যবহৃত")
-        }
-        addRow(label("OCR text cache limit", "OCR লেখার ক্যাশ সীমা"), cacheLimitSummary) {
-            AlertDialog.Builder(this)
-                .setTitle(label("Maximum OCR text cache", "OCR লেখার ক্যাশের সর্বোচ্চ আকার"))
-                .setSingleChoiceItems(cacheLimitLabels, selectedCacheLimit) { dialog, which ->
-                    val limitMb = cacheLimitChoices[which]
-                    prefs.edit().putInt("ocr_cache_limit_mb", limitMb).apply()
-                    trimOcrCache(limitMb)
-                    dialog.dismiss()
-                    Toast.makeText(this, label("OCR cache limit saved", "OCR ক্যাশের সীমা সংরক্ষিত"), Toast.LENGTH_SHORT).show()
-                    render()
-                }
-                .setNegativeButton(label("Cancel", "বাতিল"), null)
-                .show()
+        addRow(label("OCR", "OCR"), ocrSummary + "\n" + label(
+            "Engine, languages, download and text cache limit",
+            "ইঞ্জিন, ভাষা, ডাউনলোড ও লেখার ক্যাশ সীমা"
+        )) {
+            startActivity(Intent(this, OcrSettingsActivity::class.java))
         }
 
         addSection(label("STORAGE", "স্টোরেজ"))
@@ -691,7 +668,7 @@ class SettingsActivity : ComponentActivity() {
             chooseBooks.launch(null)
         }
 
-        addRow(label("About storage access", "স্টোরেজ সম্পর্কে"), label("Books are scanned only in your selected folder. OCR text cache stays in app storage and follows the limit above.", "শুধু আপনার বেছে নেওয়া ফোল্ডারে বই খোঁজা হয়। OCR লেখার ক্যাশ অ্যাপের নিজস্ব স্টোরেজে থাকে এবং উপরের সীমা মেনে চলে।")) {
+        addRow(label("About storage access", "স্টোরেজ সম্পর্কে"), label("Books are scanned only in your selected folder. OCR text cache stays in app storage and follows the limit in Settings → OCR.", "শুধু আপনার বেছে নেওয়া ফোল্ডারে বই খোঁজা হয়। OCR লেখার ক্যাশ অ্যাপের নিজস্ব স্টোরেজে থাকে এবং সেটিংস → OCR-এর সীমা মেনে চলে।")) {
             AlertDialog.Builder(this).setMessage(label("Kontho scans only the folder you grant access to. Android does not allow unrestricted scanning of every location by default. PDF files remain where you store them, while OCR text cache is managed separately in app storage. Speech is generated by Android text-to-speech; this version does not save generated audio files.", "কণ্ঠ শুধু আপনার অনুমতি দেওয়া ফোল্ডার স্ক্যান করে। Android ডিফল্টভাবে সব জায়গা অবাধে স্ক্যান করতে দেয় না। PDF আপনার নির্বাচিত জায়গাতেই থাকে, আর OCR লেখার ক্যাশ অ্যাপের নিজস্ব স্টোরেজে আলাদাভাবে থাকে। Android-এর টেক্সট-টু-স্পিচ কণ্ঠ তৈরি করে; এই সংস্করণে তৈরি অডিও ফাইল হিসেবে সংরক্ষণ করা হয় না।"))
                 .setPositiveButton(label("OK", "ঠিক আছে"), null).show()
         }
@@ -767,28 +744,6 @@ class SettingsActivity : ComponentActivity() {
         root.addView(done, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         setContentView(root)
         installSafeInsets(root, dp(24), dp(20), dp(24), dp(20))
-    }
-
-    private fun ocrCacheUsageBytes(): Long {
-        val directory = File(filesDir, "ocr-cache")
-        if (!directory.isDirectory) return 0L
-        return directory.walkTopDown().filter { it.isFile && !it.name.endsWith(".part") }
-            .sumOf { it.length() }
-    }
-
-    private fun trimOcrCache(limitMb: Int) {
-        if (limitMb <= 0) return
-        val directory = File(filesDir, "ocr-cache")
-        if (!directory.isDirectory) return
-        val files = directory.walkTopDown().filter { it.isFile && !it.name.endsWith(".part") }
-            .sortedBy { it.lastModified() }.toList()
-        var totalBytes = files.sumOf { it.length() }
-        val limitBytes = limitMb.toLong() * 1024L * 1024L
-        for (file in files) {
-            if (totalBytes <= limitBytes) break
-            val size = file.length()
-            if (file.delete()) totalBytes -= size
-        }
     }
 
     private fun openProjectPage() {
