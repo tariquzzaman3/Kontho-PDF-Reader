@@ -50,10 +50,16 @@ This link opens the external support page; no personal bank-account number is pu
 - Rotate the reading screen, keep the display awake while a PDF is open, jump to a page, share a PDF, print it, or save a copy.
 - Use light, dark, or system appearance and choose English or বাংলা for the app interface.
 
+### OCR settings
+
+- **Settings → Reading → OCR** lists the engines best first: **Kontho OCR** (Bangla, English, Arabic; small one-time download, then offline) and **Phone default** (text already inside the PDF).
+- Download or delete the Kontho OCR models by hand, like the voices. Offline, Kontho uses the phone default; online, it offers the better OCR download.
+- A single **Read aloud** button in the PDF page uses the engine you chose.
+
 ### OCR cache and preferences
 
 - Saves recognized text in app-private storage so previously scanned pages can be reused.
-- Configures the OCR text-cache limit to 10, 25, 50, 100, 250, or 500 MB, or no limit. When the limit is reached, older cached pages are removed first.
+- Configures the OCR text-cache limit (in Settings → OCR) to 10, 25, 50, 100, 250, or 500 MB, or no limit. When the limit is reached, older cached pages are removed first.
 - Lets readers retain a book's OCR cache or clear it when leaving the book. OCR text cache and downloaded language models use separate storage.
 - Includes settings for next-page pre-scanning, automatic continuation, reading-position visibility, and background playback.
 

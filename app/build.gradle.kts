@@ -64,8 +64,8 @@ android {
         applicationId = "org.kontho.pdfreader"
         minSdk = 23
         targetSdk = 36
-        versionCode = 16
-        versionName = "0.7.0"
+        versionCode = 17
+        versionName = "0.7.1"
         manifestPlaceholders["appLabel"] = "Kontho PDF Reader"
 
         // Keep the APK small: real phones are arm64 or 32-bit ARM. x86 is only emulators.
