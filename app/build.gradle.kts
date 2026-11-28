@@ -64,8 +64,8 @@ android {
         applicationId = "org.kontho.pdfreader"
         minSdk = 23
         targetSdk = 36
-        versionCode = 19
-        versionName = "0.7.3"
+        versionCode = 20
+        versionName = "0.8.0"
         manifestPlaceholders["appLabel"] = "Kontho PDF Reader"
 
         // Keep the APK small: real phones are arm64 or 32-bit ARM. x86 is only emulators.
@@ -122,6 +122,9 @@ dependencies {
     implementation("androidx.activity:activity-ktx:1.9.3")
     implementation("androidx.swiperefreshlayout:swiperefreshlayout:1.1.0")
     implementation("androidx.documentfile:documentfile:1.0.1")
+    implementation("androidx.recyclerview:recyclerview:1.3.2")
+    // Reads .cbr (RAR) comics. Its licence is listed in THIRD_PARTY_NOTICES.md.
+    implementation("com.github.junrar:junrar:7.5.5")
     implementation("com.tom-roush:pdfbox-android:2.0.27.0")
     implementation("cz.adaptech.tesseract4android:tesseract4android:4.9.0")
     implementation(files(sherpaAar).builtBy(fetchSherpaAar))

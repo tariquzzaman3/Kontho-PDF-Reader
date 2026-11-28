@@ -49,6 +49,7 @@ This link opens the external support page; no personal bank-account number is pu
 ### PDF library and reader
 
 - Import PDFs through Android's document picker or select a folder for the library to scan.
+- **Also reads EPUB books and CBZ/CBR comics and manga** (left-to-right, right-to-left or vertical-strip reading). Read aloud and OCR are for PDFs only.
 - Browse books in grid or list view, sort by name or modification date, and choose a page for a book's thumbnail. During folder scans, each PDF appears as soon as it is discovered; the selected sort order is restored when scanning finishes.
 - Read pages in one continuous vertical scroll and use pinch gestures or the reader menu to adjust zoom.
 - Rotate the reading screen, keep the display awake while a PDF is open, jump to a page, share a PDF, print it, or save a copy.

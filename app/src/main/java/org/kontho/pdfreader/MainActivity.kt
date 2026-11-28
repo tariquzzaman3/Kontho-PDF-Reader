@@ -278,7 +278,11 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private fun openGrantedPdf(uri: Uri) {
         keepReadPermission(uri)
         val stable = BookAccess.stableUri(this, uri, savedFolderUri())
-        val book = Book(stable, displayName(uri))
+        var name = displayName(uri)
+        if (BookFormats.kindOf(name) == null) {
+            BookFormats.extensionForMime(contentResolver.getType(uri))?.let { name = "$name.$it" }
+        }
+        val book = Book(stable, name)
         if (BookAccess.isDurable(this, stable)) rememberRecentBook(book)
         openBook(book)
     }
@@ -546,7 +550,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 Ui.icon(this@MainActivity, R.drawable.ic_add, palette.onAccent, 26),
                 LinearLayout.LayoutParams(dp(26), dp(26))
             )
-            setOnClickListener { openPdf.launch(arrayOf("application/pdf")) }
+            setOnClickListener { openPdf.launch(BookFormats.PICKER_TYPES) }
             Ui.pressable(this, 0.92f)
         }
         val libraryHolder = FrameLayout(this)
@@ -723,7 +727,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                         if (generation == libraryScanGeneration && showingLibrary && books.none { it.uri == uri }) {
                             books = books + book
                             appendBookCard(book)
-                            if (books.size % 10 == 0) setBusy("Found ${books.size} PDF files…")
+                            if (books.size % 10 == 0) setBusy("Found ${books.size} books…")
                         }
                     }
                 }
@@ -734,7 +738,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     }
 
     private fun isPdf(file: DocumentFile): Boolean {
-        return file.name?.endsWith(".pdf", ignoreCase = true) == true ||
+        return BookFormats.kindOf(file.name) != null ||
             file.type.equals("application/pdf", ignoreCase = true)
     }
 
@@ -857,7 +861,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         card.addView(cover, if (listMode) LinearLayout.LayoutParams(dp(64), dp(88)).apply { marginEnd = dp(10) }
             else LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         val title = TextView(this).apply {
-            text = book.name.removeSuffixIgnoreCase(".pdf")
+            text = BookFormats.title(book.name)
             tag = "book_title"
             textSize = if (listMode) 14f else when {
                 gridColumns >= 9 -> 8f
@@ -922,15 +926,25 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         sortedBooks.forEach { book ->
             val card = cards[book.uri.toString()] ?: return@forEach
             libraryGrid.addView(card, card.layoutParams as GridLayout.LayoutParams)
-            card.findViewWithTag<TextView>("book_title")?.text = book.name.removeSuffixIgnoreCase(".pdf")
+            card.findViewWithTag<TextView>("book_title")?.text = BookFormats.title(book.name)
         }
         updateLibraryCount()
     }
 
     private fun loadCoverThumbnail(book: Book, image: ImageView) {
+        val kind = BookFormats.kindOf(book.name)
         thumbnailWorker.execute {
             var bitmap: Bitmap? = null
             try {
+                if (kind == BookKind.EPUB || kind == BookKind.COMIC) {
+                    val cover = BookCovers.load(this, book.uri, book.name, 360, 520)
+                    runOnUiThread {
+                        if (cover != null && !isFinishing && !isDestroyed && showingLibrary && image.tag == book.uri.toString()) {
+                            image.setImageBitmap(cover)
+                        } else cover?.recycle()
+                    }
+                    return@execute
+                }
                 contentResolver.openFileDescriptor(book.uri, "r")?.use { descriptor ->
                     PdfRenderer(descriptor).use { renderer ->
                         if (renderer.pageCount > 0) {
@@ -965,6 +979,18 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
     private fun openBook(requested: Book, initialPage: Int = 0, password: String? = null) {
         val book = requested.copy(uri = BookAccess.stableUri(this, requested.uri, savedFolderUri()))
+        val kind = BookFormats.kindOf(book.name)
+        if (kind == BookKind.EPUB || kind == BookKind.COMIC) {
+            val target = if (kind == BookKind.EPUB) EpubReaderActivity::class.java else ComicReaderActivity::class.java
+            startActivity(
+                Intent(this, target)
+                    .setData(book.uri)
+                    .putExtra(BookFormats.EXTRA_URI, book.uri.toString())
+                    .putExtra(BookFormats.EXTRA_NAME, book.name)
+                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            )
+            return
+        }
         activePdfPassword = password
         if (libraryScanRunning) {
             libraryScanGeneration++
