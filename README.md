@@ -10,6 +10,10 @@ Download the latest APK from the [permanent latest GitHub Release page](https://
 
 Install the APK on your Android device. Your PDF files remain in the folders and locations you choose. OCR recognition can vary with scan quality and page layout, while read-aloud voice options depend on the Android text-to-speech engine installed on your device.
 
+## License
+
+Kontho PDF Reader is free software under the **GNU GPL v3 or later** (see `LICENSE`): you may use, study, share and change it, and any version you share must stay open under the same license. Credits and the licenses of the libraries and models it uses are in `THIRD_PARTY_NOTICES.md`. The optional Bangla voice model is CC BY-NC 4.0 (non-commercial). Contributions are welcome: see `CONTRIBUTING.md`.
+
 ## Support Kontho
 
 Kontho is free to use. If you would like to support its development, visit the creator's SupportKori page:
