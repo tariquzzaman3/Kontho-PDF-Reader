@@ -31,6 +31,11 @@ These are separate data files fetched on request. They are not linked into the p
 
 - JUnit 4.13.2 (EPL-1.0), Gradle, Android Gradle Plugin and Kotlin (Apache-2.0).
 
+## Archive reading
+
+- **junrar** (https://github.com/junrar/junrar) reads RAR archives for `.cbr` comics. It is distributed under the UnRAR licence, which allows use and redistribution but not use to recreate the RAR compression algorithm. Kontho only extracts; it never creates RAR files.
+- **AndroidX RecyclerView** is licensed under Apache License 2.0.
+
 ## Full license texts
 
 - GNU GPL v3: `LICENSE`
