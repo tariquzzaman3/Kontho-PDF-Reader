@@ -130,9 +130,3 @@ The expected output paths are:
 - Release Android App Bundle: `app/build/outputs/bundle/release/app-release.aab`
 
 GitHub Actions builds and uploads a debug APK and a release AAB for build inspection. The installable, signed APK is published separately on the GitHub Releases page.
-
-## Project status and release preparation
-
-Kontho is under active development. Before distributing a build, verify the latest GitHub Actions run and test the resulting APK on a physical Android device, especially with scanned Bangla, English and Arabic PDFs and the intended device TTS voices.
-
-For release requirements, see the [Google Play release checklist](docs/GOOGLE_PLAY_RELEASE_CHECKLIST.md). Store listing details, data-safety declarations, app signing, and final submission still need to be completed in Play Console.
