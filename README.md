@@ -50,6 +50,8 @@ This link opens the external support page; no personal bank-account number is pu
 - Rotate the reading screen, keep the display awake while a PDF is open, jump to a page, share a PDF, print it, or save a copy.
 - Use light, dark, or system appearance and choose English or বাংলা for the app interface.
 
+- **PDF page:** five quick icons (read aloud, night view, rotate, share, download) show with the ⋮ menu for 4 seconds. Download saves to Downloads.
+
 ### Settings layout
 
 - **Settings → Appearance:** theme, light-theme colour, library layout, grid columns (hidden for List).
