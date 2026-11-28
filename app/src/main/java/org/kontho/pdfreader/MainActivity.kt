@@ -180,6 +180,9 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private var zoomGestureOccurred = false
     private val mainHandler = Handler(Looper.getMainLooper())
     private val hideReaderOverlaysRunnable = Runnable { hideReaderOverlays() }
+    private lateinit var readerActionBar: LinearLayout
+    private var readerReadAloudIcon: ImageView? = null
+    private var readerInvertIcon: ImageView? = null
     private var touchDownX = 0f
     private var touchDownY = 0f
     private var touchDidMove = false
@@ -1308,7 +1311,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 stopReaderNarration()
                 readerPlaybackPanel.visibility = View.GONE
                 mainHandler.removeCallbacks(hideReaderOverlaysRunnable)
-                mainHandler.postDelayed(hideReaderOverlaysRunnable, 2_000L)
+                mainHandler.postDelayed(hideReaderOverlaysRunnable, READER_OVERLAY_HIDE_MS)
             }
             if (shouldConfirmStoppingContinuousNarration()) {
                 confirmStoppingContinuousNarration(
@@ -1338,6 +1341,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             leftMargin = dp(8)
             rightMargin = dp(8)
         })
+
+        buildReaderActionBar(root)
 
         scaleGestureDetector = ScaleGestureDetector(this,
             object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
@@ -1740,9 +1745,10 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         if (::readerPageTitle.isInitialized) readerPageTitle.visibility = View.VISIBLE
         if (::pageScrubber.isInitialized) pageScrubber.visibility = View.VISIBLE
         readerPlaybackPanel.visibility = if (isNarrating || narrationPaused) View.VISIBLE else View.GONE
+        showReaderActionBar()
         readerPauseButton.text = if (isNarrating && !narrationPaused) "Ⅱ" else "▶"
         updatePageScrubberLabel()
-        mainHandler.postDelayed(hideReaderOverlaysRunnable, 2_000L)
+        mainHandler.postDelayed(hideReaderOverlaysRunnable, READER_OVERLAY_HIDE_MS)
     }
 
     private fun hideReaderOverlays() {
@@ -1750,12 +1756,162 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         readerMenuButton.visibility = View.GONE
         if (::readerPageTitle.isInitialized) readerPageTitle.visibility = View.GONE
         if (::pageScrubber.isInitialized) pageScrubber.visibility = View.GONE
+        if (::readerActionBar.isInitialized) readerActionBar.visibility = View.GONE
         readerPlaybackPanel.visibility = if (isNarrating || narrationPaused) View.VISIBLE else View.GONE
     }
 
     private fun updatePageScrubberLabel() {
         if (!::pageScrubber.isInitialized) return
         pageScrubber.text = "⋮\n${(currentPage + 1).coerceAtLeast(1)}/${pageCount.coerceAtLeast(1)}"
+    }
+
+    // ---------------------------------------------------------------- reader icon bar
+
+    private fun tr(en: String, bn: String): String =
+        if (preferences.getString("app_language", "en") == "bn") bn else en
+
+    /** Five icons (read aloud, night view, rotate, share, download) that appear and vanish with the menu and title. */
+    private fun buildReaderActionBar(root: FrameLayout) {
+        readerActionBar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            background = glassBackground()
+            setPadding(dp(8), dp(4), dp(8), dp(4))
+            elevation = dp(8).toFloat()
+            visibility = View.GONE
+        }
+        fun item(res: Int, description: String, action: () -> Unit): ImageView {
+            val icon = Ui.icon(this, res, Color.WHITE, 24)
+            val holder = FrameLayout(this).apply {
+                contentDescription = description
+                isClickable = true
+                isFocusable = true
+                background = Ui.rippleShape(Color.TRANSPARENT, dp(22).toFloat(), 0x33FFFFFF)
+                setOnClickListener { action() }
+                addView(icon, FrameLayout.LayoutParams(dp(24), dp(24), Gravity.CENTER))
+                Ui.pressable(this, 0.9f)
+            }
+            readerActionBar.addView(holder, LinearLayout.LayoutParams(dp(48), dp(44)))
+            return icon
+        }
+        readerReadAloudIcon = item(R.drawable.ic_read_aloud, tr("Read aloud", "পড়ে শোনান")) {
+            if (narrationPaused) resumeReaderNarration()
+            else if (isNarrating) pauseReaderNarration()
+            else startReadAloud()
+            showReaderOverlays()
+        }
+        readerInvertIcon = item(R.drawable.ic_invert_colors, tr("Invert colors · Night view", "রং উল্টান · রাতের মোড")) {
+            val inverted = preferences.getBoolean("pdf_invert_colors", false)
+            preferences.edit().putBoolean("pdf_invert_colors", !inverted).apply()
+            applyPdfColorMode()
+            refreshReaderActionBar()
+            showReaderOverlays()
+        }
+        item(R.drawable.ic_rotate_screen, tr("Rotate screen", "স্ক্রিন ঘোরান")) {
+            rotateReaderScreen()
+            showReaderOverlays()
+        }
+        item(R.drawable.ic_share, tr("Share PDF", "PDF শেয়ার করুন")) { shareCurrentBook() }
+        item(R.drawable.ic_download, tr("Download PDF", "PDF ডাউনলোড")) { downloadCurrentBook() }
+        root.addView(readerActionBar, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+            Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+        ).apply { bottomMargin = dp(16) })
+    }
+
+    private fun showReaderActionBar() {
+        if (!::readerActionBar.isInitialized) return
+        refreshReaderActionBar()
+        // Sit above the playback panel while the book is being read aloud.
+        val lift = if (isNarrating || narrationPaused) dp(104) else dp(16)
+        (readerActionBar.layoutParams as? FrameLayout.LayoutParams)?.let {
+            if (it.bottomMargin != lift) {
+                it.bottomMargin = lift
+                readerActionBar.layoutParams = it
+            }
+        }
+        readerActionBar.visibility = View.VISIBLE
+    }
+
+    private fun refreshReaderActionBar() {
+        val green = Color.rgb(98, 225, 164)
+        readerReadAloudIcon?.setColorFilter(if (isNarrating && !narrationPaused) green else Color.WHITE)
+        readerInvertIcon?.setColorFilter(
+            if (preferences.getBoolean("pdf_invert_colors", false)) green else Color.WHITE
+        )
+    }
+
+    /**
+     * Saves the open PDF straight into the phone's Downloads folder, where the browser's downloads
+     * go too. A browser can only fetch web addresses, so a local file is written there directly.
+     * Android 9 and older fall back to choosing a place to save.
+     */
+    private fun downloadCurrentBook() {
+        val book = currentBook
+        if (book == null) {
+            toast(tr("Open a PDF first.", "আগে একটি PDF খুলুন।"))
+            return
+        }
+        var name = book.name.replace(Regex("[\\\\/:*?\"<>|]"), "_").trim().ifEmpty { "book" }
+        if (!name.endsWith(".pdf", ignoreCase = true)) name += ".pdf"
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            createPdfCopy.launch(name)
+            return
+        }
+        val source = book.uri
+        setBusy(tr("Saving to Downloads…", "ডাউনলোডে সংরক্ষণ হচ্ছে…"))
+        worker.execute {
+            var target: Uri? = null
+            try {
+                val values = android.content.ContentValues().apply {
+                    put(android.provider.MediaStore.Downloads.DISPLAY_NAME, name)
+                    put(android.provider.MediaStore.Downloads.MIME_TYPE, "application/pdf")
+                    put(android.provider.MediaStore.Downloads.RELATIVE_PATH, android.os.Environment.DIRECTORY_DOWNLOADS)
+                    put(android.provider.MediaStore.Downloads.IS_PENDING, 1)
+                }
+                val created = contentResolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+                    ?: throw IOException("Could not create a file in Downloads.")
+                target = created
+                val total = try { DocumentFile.fromSingleUri(this, source)?.length() ?: -1L } catch (_: Exception) { -1L }
+                contentResolver.openInputStream(source).use { input ->
+                    if (input == null) throw IOException("Could not read the open PDF.")
+                    contentResolver.openOutputStream(created, "w").use { output ->
+                        if (output == null) throw IOException("Could not write to Downloads.")
+                        val buffer = ByteArray(64 * 1024)
+                        var copied = 0L
+                        var lastUpdate = 0L
+                        while (true) {
+                            val count = input.read(buffer)
+                            if (count < 0) break
+                            output.write(buffer, 0, count)
+                            copied += count
+                            if (total > 0 && copied - lastUpdate >= 512 * 1024) {
+                                lastUpdate = copied
+                                setBusy(tr("Saving to Downloads…", "ডাউনলোডে সংরক্ষণ হচ্ছে…"), (copied * 100L / total).toInt())
+                            }
+                        }
+                        output.flush()
+                    }
+                }
+                contentResolver.update(created, android.content.ContentValues().apply {
+                    put(android.provider.MediaStore.Downloads.IS_PENDING, 0)
+                }, null, null)
+                mainHandler.post {
+                    clearBusy()
+                    Toast.makeText(
+                        this,
+                        tr("Saved to your Downloads folder.", "আপনার Downloads ফোল্ডারে সংরক্ষিত হয়েছে।"),
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            } catch (error: Exception) {
+                target?.let { try { contentResolver.delete(it, null, null) } catch (_: Exception) {} }
+                mainHandler.post {
+                    clearBusy()
+                    toast(tr("Could not save the PDF: ", "PDF সংরক্ষণ করা যায়নি: ") + (error.localizedMessage ?: "unknown error"))
+                }
+            }
+        }
     }
 
     private fun showReaderMenu(anchor: View) {
@@ -2015,10 +2171,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         )
         addAction(label("Share PDF", "PDF শেয়ার করুন"), { shareCurrentBook() })
         addAction(label("Print PDF", "PDF প্রিন্ট করুন"), { printCurrentBook() })
-        addAction(label("Download opened book…", "খোলা বই ডাউনলোড…"), {
-            val name = currentBook?.name ?: "book.pdf"
-            createPdfCopy.launch(if (name.endsWith(".pdf", true)) name else "$name.pdf")
-        })
+        addAction(label("Download PDF", "PDF ডাউনলোড"), { downloadCurrentBook() })
         addAction(label("Set current page as cover", "বর্তমান পৃষ্ঠাটি কভার করুন"), { saveCurrentPageAsCover() })
         addAction(label("Settings", "সেটিংস"), {
             startActivity(Intent(this@MainActivity, SettingsActivity::class.java))
@@ -3594,6 +3747,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         private const val MAX_PAGE_ASPECT_RATIO = 20f
         private const val KEY_BOOK_FOLDER = "book_folder_uri"
         private const val KEY_RECENT_BOOKS = "recent_books"
-        private const val KEY_KEEP_SCREEN_AWAKE = "keep_screen_awake"
+        private const val READER_OVERLAY_HIDE_MS = 4_000L
+        const val KEY_KEEP_SCREEN_AWAKE = "keep_screen_awake"
     }
 }
