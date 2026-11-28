@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 package org.kontho.pdfreader
 
 import androidx.activity.ComponentActivity
@@ -644,6 +645,36 @@ class SettingsActivity : ComponentActivity() {
                 .setTitle("কণ্ঠ · Kontho PDF Reader")
                 .setMessage(label("Version $appVersion\nRead PDFs, use Bengali/English OCR, and listen through Android text-to-speech.", "সংস্করণ $appVersion\nPDF পড়ুন, বাংলা/ইংরেজি OCR ব্যবহার করুন এবং Android-এর কণ্ঠে শুনুন।"))
                 .setNeutralButton(label("GitHub project", "GitHub প্রকল্প")) { _, _ -> openProjectPage() }
+                .setPositiveButton(label("OK", "ঠিক আছে"), null)
+                .show()
+        }
+
+        addRow(
+            label("License and credits", "লাইসেন্স ও কৃতজ্ঞতা"),
+            label("Free software · GNU GPL v3 or later", "মুক্ত সফটওয়্যার · GNU GPL v3 বা পরবর্তী")
+        ) {
+            KDialog(this)
+                .setTitle(label("License and credits", "লাইসেন্স ও কৃতজ্ঞতা"))
+                .setMessage(label(
+                    "Kontho PDF Reader is free software under the GNU General Public License v3 or later. You may use, study, share and change it; versions you share must stay open under the same license.\n\n" +
+                        "It uses AndroidX, PdfBox-Android, Tesseract (via Tesseract4Android), sherpa-onnx with ONNX Runtime, Bouncy Castle and Material icons, all under permissive licenses, and Tesseract language data (Apache-2.0).\n\n" +
+                        "The optional offline Bangla voice is Meta MMS-TTS (CC BY-NC 4.0, non-commercial). Azure voices need your own Microsoft key.\n\n" +
+                        "Source code and full notices are on GitHub.",
+                    "কণ্ঠ PDF Reader একটি মুক্ত সফটওয়্যার, GNU General Public License v3 বা পরবর্তী সংস্করণের অধীনে। আপনি এটি ব্যবহার, অধ্যয়ন, শেয়ার ও পরিবর্তন করতে পারেন; শেয়ার করা সংস্করণ একই লাইসেন্সে উন্মুক্ত থাকতে হবে।\n\n" +
+                        "এতে AndroidX, PdfBox-Android, Tesseract (Tesseract4Android হয়ে), sherpa-onnx ও ONNX Runtime, Bouncy Castle এবং Material আইকন ব্যবহার হয়েছে, সবই উদার লাইসেন্সে; সঙ্গে Tesseract ভাষা ডেটা (Apache-2.0)।\n\n" +
+                        "ঐচ্ছিক অফলাইন বাংলা কণ্ঠ Meta MMS-TTS (CC BY-NC 4.0, অবাণিজ্যিক)। Azure কণ্ঠের জন্য আপনার নিজের Microsoft কী লাগে।\n\n" +
+                        "সোর্স কোড ও পূর্ণ বিবরণ GitHub-এ আছে।"
+                ))
+                .setNeutralButton(label("Source and notices", "সোর্স ও বিবরণ")) { _, _ ->
+                    try {
+                        startActivity(Intent(
+                            Intent.ACTION_VIEW,
+                            Uri.parse("https://github.com/tariquzzaman3/Kontho-PDF-Reader/blob/main/THIRD_PARTY_NOTICES.md")
+                        ).addCategory(Intent.CATEGORY_BROWSABLE))
+                    } catch (_: Exception) {
+                        Toast.makeText(this, label("Could not open GitHub.", "GitHub খোলা যায়নি।"), Toast.LENGTH_LONG).show()
+                    }
+                }
                 .setPositiveButton(label("OK", "ঠিক আছে"), null)
                 .show()
         }
