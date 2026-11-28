@@ -101,8 +101,8 @@ class KDialog(private val context: Context) {
             ))
         }
         choices?.let { items ->
-            items.forEachIndexed { index, text ->
-                body.addView(choiceRow(dialog, text, index == choiceIndex, index), LinearLayout.LayoutParams(
+            items.forEachIndexed { index, optionText ->
+                body.addView(choiceRow(dialog, optionText, index == choiceIndex, index), LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
                 ).apply { bottomMargin = dp(6) })
             }
@@ -152,7 +152,7 @@ class KDialog(private val context: Context) {
 
     fun show(): Dialog = create().also { it.show() }
 
-    private fun choiceRow(dialog: Dialog, text: String, selected: Boolean, index: Int): View {
+    private fun choiceRow(dialog: Dialog, optionText: String, selected: Boolean, index: Int): View {
         val row = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -166,7 +166,7 @@ class KDialog(private val context: Context) {
             isClickable = true
             isFocusable = true
         }
-        val label = Ui.text(context, text, 15f, palette.text, bold = selected).apply {
+        val label = Ui.text(context, optionText, 15f, palette.text, bold = selected).apply {
             setLineSpacing(0f, 1.1f)
         }
         row.addView(label, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
